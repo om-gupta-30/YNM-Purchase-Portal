@@ -183,7 +183,7 @@ function expandManufacturers(manufacturers) {
                 Location: manufacturer.Location || '',
                 Contact_Number: manufacturer.Contact_Number || '',
                 Product_Price: price || 'N/A',
-                _id: manufacturer._id || manufacturer.id, // Preserve MongoDB ID for deletion
+                _id: manufacturer._id || manufacturer.id, // Store ID for deletion
                 Products_Offered_Array: manufacturer.Products_Offered_Array || [],
                 Product_Prices_Object: manufacturer.Product_Prices_Object || {}
             });
@@ -413,7 +413,7 @@ async function loadManufacturers() {
             Contact_Number: m.Contact_Number,
                 'Products_Offered': m.Products_Offered || productsOfferedArray.join(', '),
                 'Product_Prices (Rs.)': m['Product_Prices (Rs.)'] || Object.entries(productPricesObject).map(([k, v]) => `${k}: ${v}`).join(', '),
-            _id: m._id || m.id, // Store MongoDB ID for deletion
+            _id: m._id || m.id, // Store ID for deletion
                 Products_Offered_Array: productsOfferedArray,
                 Product_Prices_Object: productPricesObject
             };
@@ -676,7 +676,7 @@ window.deleteManufacturer = async function(manufacturerId, manufacturerName, pro
             return;
         }
         
-        // Ensure we have the MongoDB _id
+        // Ensure we have the database ID
         if (!manufacturer._id) {
             alert('Cannot delete: Manufacturer ID not found. Please refresh the page and try again.');
             return;

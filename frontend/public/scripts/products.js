@@ -96,7 +96,7 @@ async function loadProducts() {
             Sub_Type: p.Sub_Type,
             Unit: p.Unit,
             Notes: p.Notes || '',
-            _id: p._id || p.id // Store MongoDB ID for deletion
+            _id: p._id || p.id // Store ID for deletion
         }));
         
         filteredProducts = [...allProducts];
@@ -161,7 +161,7 @@ window.deleteProduct = async function(productId) {
     }
     
     try {
-        // Find product to get MongoDB _id
+        // Find product to get database ID
         const product = allProducts.find(p => p.Product_ID === productId);
         if (!product || !product._id) {
             throw new Error('Product not found');

@@ -995,12 +995,8 @@ async function deleteOrder(orderId, orderIdDisplay) {
         console.error('Error deleting order:', error);
         const errorMessage = error.message || 'Failed to delete order. Please try again.';
         
-        // Check if it's an authorization error
-        if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('admin')) {
-            alert('You do not have permission to delete orders. Only administrators can delete orders.');
-        } else {
-            alert(`Error: ${errorMessage}`);
-        }
+        // Show error message
+        alert(`Error: ${errorMessage}`);
     }
 }
 

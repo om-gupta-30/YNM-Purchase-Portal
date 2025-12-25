@@ -95,8 +95,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Direct backend API call
                 console.log('Attempting login for:', username);
                 // Use the same API base URL logic as api.js
-                const BASE_URL = "https://ynm-safety-portal-2.onrender.com";
-                const PYTHON_URL = "https://ynm-safety-portal-2-1.onrender.com";
+                const BASE_URL = "https://backend-api-822693677008.asia-south1.run.app";
+                const PYTHON_URL = "";
                 const API_BASE_URL = (() => {
                     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                         return 'http://localhost:5002/api';
