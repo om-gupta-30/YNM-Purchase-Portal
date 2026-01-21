@@ -9,7 +9,7 @@ import os
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-CORS(app, origins=["https://ynm-safety-portal-2.vercel.app"])  # Enable CORS for frontend requests
+CORS(app) # Enable CORS for frontend requests
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -331,8 +331,8 @@ def health():
 
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5001))
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
 
 

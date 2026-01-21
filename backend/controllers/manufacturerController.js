@@ -1,5 +1,4 @@
-const Manufacturer = require('../models/Manufacturer');
-const Product = require('../models/Product');
+const { supabase } = require('../config/supabase');
 const { validatePhone, validateName, validateLocation, validateNumeric, validateUnit } = require('../middleware/validation');
 
 // Helper function for fuzzy matching
@@ -33,27 +32,30 @@ function fuzzyMatch(str1, str2) {
 // @access  Private
 exports.getManufacturers = async (req, res) => {
   try {
-    const manufacturers = await Manufacturer.find().sort({ name: 1 });
+    const { data: manufacturers, error } = await supabase
+      .from('manufacturers')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
     
     // Transform to frontend format
-    const transformedManufacturers = manufacturers.map(manufacturer => {
-      // Convert productsOffered array to comma-separated string
-      const productsOffered = manufacturer.productsOffered.map(p => p.productType).join(', ');
-      
-      // Convert productsOffered to price string format
-      const productPrices = manufacturer.productsOffered.map(p => `${p.productType}: ${p.price}`).join(', ');
+    const transformedManufacturers = (manufacturers || []).map(manufacturer => {
+      const productsOffered = (manufacturer.products_offered || []).map(p => p.productType).join(', ');
+      const productPrices = (manufacturer.products_offered || []).map(p => `${p.productType}: ${p.price}`).join(', ');
       
       return {
-        _id: manufacturer._id,
-        id: manufacturer._id,
-        Manufacturer_ID: `M${String(manufacturer._id).slice(-3)}`,
+        _id: manufacturer.id,
+        id: manufacturer.id,
+        Manufacturer_ID: `M${String(manufacturer.id).padStart(3, '0')}`,
         Manufacturer_Name: manufacturer.name,
         Location: manufacturer.location,
         Contact_Number: manufacturer.contact,
         Products_Offered: productsOffered,
         'Product_Prices (Rs.)': productPrices,
-        // Also include structured data for easier access
-        productsOffered: manufacturer.productsOffered
+        productsOffered: manufacturer.products_offered || []
       };
     });
     
@@ -151,14 +153,15 @@ exports.createManufacturer = async (req, res) => {
       }
 
       // CRITICAL: Verify product exists in Products database
-      // Extract product name from productType (frontend sends productType as subtype)
-      // We need to find which product this subtype belongs to
-      const allProducts = await Product.find();
+      const { data: allProducts } = await supabase
+        .from('products')
+        .select('*');
+
       let productFound = false;
       let productName = null;
 
       // Check if productType matches any product's subtype
-      for (const dbProduct of allProducts) {
+      for (const dbProduct of (allProducts || [])) {
         if (dbProduct.subtypes && dbProduct.subtypes.includes(product.productType)) {
           productFound = true;
           productName = dbProduct.name;
@@ -175,14 +178,18 @@ exports.createManufacturer = async (req, res) => {
     }
 
     // Check for duplicate manufacturers
-    const allManufacturers = await Manufacturer.find();
-    for (const existingManufacturer of allManufacturers) {
+    const { data: allManufacturers } = await supabase
+      .from('manufacturers')
+      .select('*');
+
+    for (const existingManufacturer of (allManufacturers || [])) {
       const nameScore = fuzzyMatch(name, existingManufacturer.name);
       
       if (nameScore >= 0.85) {
         // Check if same product + productType combination exists
+        const existingProducts = existingManufacturer.products_offered || [];
         for (const newProduct of productsOffered) {
-          for (const existingProduct of existingManufacturer.productsOffered) {
+          for (const existingProduct of existingProducts) {
             const productTypeScore = fuzzyMatch(newProduct.productType, existingProduct.productType);
             if (productTypeScore >= 0.85) {
               return res.status(409).json({
@@ -214,27 +221,35 @@ exports.createManufacturer = async (req, res) => {
       }
     }
 
-    const manufacturer = await Manufacturer.create({
-      name,
-      location,
-      contact,
-      productsOffered: productsOffered
-    });
+    const { data: manufacturer, error: insertError } = await supabase
+      .from('manufacturers')
+      .insert({
+        name,
+        location,
+        contact,
+        products_offered: productsOffered
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return res.status(500).json({ success: false, message: insertError.message });
+    }
 
     // Return in frontend format
-    const productsOfferedStr = manufacturer.productsOffered.map(p => p.productType).join(', ');
-    const productPricesStr = manufacturer.productsOffered.map(p => `${p.productType}: ${p.price}`).join(', ');
+    const productsOfferedStr = (manufacturer.products_offered || []).map(p => p.productType).join(', ');
+    const productPricesStr = (manufacturer.products_offered || []).map(p => `${p.productType}: ${p.price}`).join(', ');
     
     const response = {
-      _id: manufacturer._id,
-      id: manufacturer._id,
-      Manufacturer_ID: `M${String(manufacturer._id).slice(-3)}`,
+      _id: manufacturer.id,
+      id: manufacturer.id,
+      Manufacturer_ID: `M${String(manufacturer.id).slice(-3)}`,
       Manufacturer_Name: manufacturer.name,
       Location: manufacturer.location,
       Contact_Number: manufacturer.contact,
       Products_Offered: productsOfferedStr,
       'Product_Prices (Rs.)': productPricesStr,
-      productsOffered: manufacturer.productsOffered
+      productsOffered: manufacturer.products_offered || []
     };
 
     res.status(201).json({ success: true, data: response });
@@ -248,30 +263,38 @@ exports.createManufacturer = async (req, res) => {
 // @access  Private/Admin
 exports.updateManufacturer = async (req, res) => {
   try {
-    const manufacturer = await Manufacturer.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    // Convert productsOffered to products_offered if needed
+    const updateData = { ...req.body };
+    if (updateData.productsOffered) {
+      updateData.products_offered = updateData.productsOffered;
+      delete updateData.productsOffered;
+    }
 
-    if (!manufacturer) {
+    const { data: manufacturer, error: updateError } = await supabase
+      .from('manufacturers')
+      .update(updateData)
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (updateError || !manufacturer) {
       return res.status(404).json({ success: false, message: 'Manufacturer not found' });
     }
 
     // Return in frontend format
-    const productsOfferedStr = manufacturer.productsOffered.map(p => p.productType).join(', ');
-    const productPricesStr = manufacturer.productsOffered.map(p => `${p.productType}: ${p.price}`).join(', ');
+    const productsOfferedStr = (manufacturer.products_offered || []).map(p => p.productType).join(', ');
+    const productPricesStr = (manufacturer.products_offered || []).map(p => `${p.productType}: ${p.price}`).join(', ');
     
     const response = {
-      _id: manufacturer._id,
-      id: manufacturer._id,
-      Manufacturer_ID: `M${String(manufacturer._id).slice(-3)}`,
+      _id: manufacturer.id,
+      id: manufacturer.id,
+      Manufacturer_ID: `M${String(manufacturer.id).slice(-3)}`,
       Manufacturer_Name: manufacturer.name,
       Location: manufacturer.location,
       Contact_Number: manufacturer.contact,
       Products_Offered: productsOfferedStr,
       'Product_Prices (Rs.)': productPricesStr,
-      productsOffered: manufacturer.productsOffered
+      productsOffered: manufacturer.products_offered || []
     };
 
     res.status(200).json({ success: true, data: response });
@@ -285,13 +308,26 @@ exports.updateManufacturer = async (req, res) => {
 // @access  Private/Admin
 exports.deleteManufacturer = async (req, res) => {
   try {
-    const manufacturer = await Manufacturer.findById(req.params.id);
+    // Check if manufacturer exists
+    const { data: manufacturer } = await supabase
+      .from('manufacturers')
+      .select('id')
+      .eq('id', req.params.id)
+      .single();
 
     if (!manufacturer) {
       return res.status(404).json({ success: false, message: 'Manufacturer not found' });
     }
 
-    await Manufacturer.findByIdAndDelete(req.params.id);
+    // Delete manufacturer
+    const { error: deleteError } = await supabase
+      .from('manufacturers')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (deleteError) {
+      return res.status(500).json({ success: false, message: deleteError.message });
+    }
 
     res.status(200).json({ success: true, message: 'Manufacturer deleted successfully' });
   } catch (error) {

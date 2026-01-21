@@ -1,4 +1,4 @@
-const Product = require('../models/Product');
+const { supabase } = require('../config/supabase');
 const { validateName, validateUnit } = require('../middleware/validation');
 
 // Helper function for fuzzy matching (simplified Levenshtein)
@@ -33,18 +33,25 @@ function fuzzyMatch(str1, str2) {
 // @access  Private
 exports.getProducts = async (req, res) => {
   try {
-    const products = await Product.find().sort({ name: 1 });
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
     
     // Transform to frontend format - expand subtypes into separate entries
     const transformedProducts = [];
-    products.forEach(product => {
+    (products || []).forEach(product => {
       if (product.subtypes && product.subtypes.length > 0) {
         // Create one entry per subtype
         product.subtypes.forEach(subtype => {
           transformedProducts.push({
-            _id: product._id,
-            id: product._id,
-            Product_ID: `P${String(product._id).slice(-3)}`,
+            _id: product.id,
+            id: product.id,
+            Product_ID: `P${String(product.id).padStart(3, '0')}`,
             Product_Name: product.name,
             Sub_Type: subtype,
             Unit: product.unit,
@@ -54,9 +61,9 @@ exports.getProducts = async (req, res) => {
       } else {
         // No subtypes, create single entry
         transformedProducts.push({
-          _id: product._id,
-          id: product._id,
-          Product_ID: `P${String(product._id).slice(-3)}`,
+          _id: product.id,
+          id: product.id,
+          Product_ID: `P${String(product.id).slice(-3)}`,
           Product_Name: product.name,
           Sub_Type: product.name,
           Unit: product.unit,
@@ -131,8 +138,11 @@ exports.createProduct = async (req, res) => {
     }
 
     // Check for duplicate products
-    const allProducts = await Product.find();
-    for (const existingProduct of allProducts) {
+    const { data: allProducts } = await supabase
+      .from('products')
+      .select('*');
+
+    for (const existingProduct of (allProducts || [])) {
       const nameScore = fuzzyMatch(finalName, existingProduct.name);
       
       if (nameScore >= 0.85) {
@@ -169,18 +179,26 @@ exports.createProduct = async (req, res) => {
       }
     }
 
-    const product = await Product.create({
-      name: finalName,
-      subtypes: finalSubtypes,
-      unit: finalUnit,
-      notes: finalNotes
-    });
+    const { data: product, error: insertError } = await supabase
+      .from('products')
+      .insert({
+        name: finalName,
+        subtypes: finalSubtypes,
+        unit: finalUnit,
+        notes: finalNotes
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return res.status(500).json({ success: false, message: insertError.message });
+    }
 
     // Return in frontend format
     const response = {
-      _id: product._id,
-      id: product._id,
-      Product_ID: `P${String(product._id).slice(-3)}`,
+      _id: product.id,
+      id: product.id,
+      Product_ID: `P${String(product.id).slice(-3)}`,
       Product_Name: product.name,
       Sub_Type: product.subtypes && product.subtypes.length > 0 ? product.subtypes[0] : product.name,
       Unit: product.unit,
@@ -198,13 +216,14 @@ exports.createProduct = async (req, res) => {
 // @access  Private/Admin
 exports.updateProduct = async (req, res) => {
   try {
-    const product = await Product.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const { data: product, error: updateError } = await supabase
+      .from('products')
+      .update(req.body)
+      .eq('id', req.params.id)
+      .select()
+      .single();
 
-    if (!product) {
+    if (updateError || !product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
@@ -219,13 +238,26 @@ exports.updateProduct = async (req, res) => {
 // @access  Private/Admin
 exports.deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    // Check if product exists
+    const { data: product } = await supabase
+      .from('products')
+      .select('id')
+      .eq('id', req.params.id)
+      .single();
 
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    await Product.findByIdAndDelete(req.params.id);
+    // Delete product
+    const { error: deleteError } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (deleteError) {
+      return res.status(500).json({ success: false, message: deleteError.message });
+    }
 
     res.status(200).json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {

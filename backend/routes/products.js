@@ -12,11 +12,11 @@ router.use(protect);
 
 router.route('/')
   .get(getProducts)
-  .post(authorize('admin'), createProduct);
+  .post(createProduct); // Allow all authenticated users (admin and employee)
 
 router.route('/:id')
-  .put(authorize('admin'), updateProduct)
-  .delete(authorize('admin'), deleteProduct);
+  .put(updateProduct) // Allow all authenticated users (admin and employee)
+  .delete(deleteProduct); // Allow all authenticated users (admin and employee)
 
 module.exports = router;
 

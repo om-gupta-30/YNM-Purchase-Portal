@@ -1,4 +1,4 @@
-const Order = require('../models/Order');
+const { supabase } = require('../config/supabase');
 const { validateName, validateLocation, validateNumeric } = require('../middleware/validation');
 const axios = require('axios');
 const FormData = require('form-data');
@@ -35,8 +35,24 @@ function fuzzyMatch(str1, str2) {
 // @access  Private
 exports.getOrders = async (req, res) => {
   try {
-    const orders = await Order.find().sort({ createdAt: -1 });
-    res.status(200).json(orders);
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+
+    // Transform to match frontend expectations (convert created_at to createdAt)
+    const transformedOrders = (orders || []).map(order => ({
+      ...order,
+      createdAt: order.created_at,
+      _id: order.id,
+      id: order.id
+    }));
+
+    res.status(200).json(transformedOrders);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -115,13 +131,16 @@ exports.createOrder = async (req, res) => {
     }
 
     // Check for duplicate orders
-    const allOrders = await Order.find();
-    for (const existingOrder of allOrders) {
+    const { data: allOrders } = await supabase
+      .from('orders')
+      .select('*');
+
+    for (const existingOrder of (allOrders || [])) {
       const manufacturerScore = fuzzyMatch(manufacturer, existingOrder.manufacturer);
       const productScore = fuzzyMatch(product, existingOrder.product);
-      const productTypeScore = fuzzyMatch(productType, existingOrder.productType);
-      const fromLocationScore = fuzzyMatch(fromLocation, existingOrder.fromLocation);
-      const toLocationScore = fuzzyMatch(toLocation, existingOrder.toLocation);
+      const productTypeScore = fuzzyMatch(productType, existingOrder.product_type);
+      const fromLocationScore = fuzzyMatch(fromLocation, existingOrder.from_location);
+      const toLocationScore = fuzzyMatch(toLocation, existingOrder.to_location);
       const quantityMatch = Math.abs(parseFloat(quantity) - parseFloat(existingOrder.quantity)) < 0.01;
       
       if (manufacturerScore >= 0.85 && 
@@ -136,30 +155,52 @@ exports.createOrder = async (req, res) => {
           existing: {
             manufacturer: existingOrder.manufacturer,
             product: existingOrder.product,
-            productType: existingOrder.productType,
+            productType: existingOrder.product_type,
             quantity: existingOrder.quantity,
-            fromLocation: existingOrder.fromLocation,
-            toLocation: existingOrder.toLocation,
-            totalCost: existingOrder.totalCost,
-            createdAt: existingOrder.createdAt
+            fromLocation: existingOrder.from_location,
+            toLocation: existingOrder.to_location,
+            totalCost: existingOrder.total_cost,
+            createdAt: existingOrder.created_at
           }
         });
       }
     }
 
-    const order = await Order.create({
-      manufacturer,
-      product,
-      productType,
-      quantity,
-      fromLocation,
-      toLocation,
-      transportCost: transportCost || 0,
-      productCost: productCost || 0,
-      totalCost
-    });
+    const { data: order, error: insertError } = await supabase
+      .from('orders')
+      .insert({
+        manufacturer,
+        product,
+        product_type: productType,
+        quantity,
+        from_location: fromLocation,
+        to_location: toLocation,
+        transport_cost: transportCost || 0,
+        product_cost: productCost || 0,
+        total_cost: totalCost
+      })
+      .select()
+      .single();
 
-    res.status(201).json({ success: true, data: order });
+    if (insertError) {
+      return res.status(500).json({ success: false, message: insertError.message });
+    }
+
+    // Transform response to match frontend expectations
+    const transformedOrder = {
+      ...order,
+      productType: order.product_type,
+      fromLocation: order.from_location,
+      toLocation: order.to_location,
+      transportCost: order.transport_cost,
+      productCost: order.product_cost,
+      totalCost: order.total_cost,
+      createdAt: order.created_at,
+      _id: order.id,
+      id: order.id
+    };
+
+    res.status(201).json({ success: true, data: transformedOrder });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -170,13 +211,26 @@ exports.createOrder = async (req, res) => {
 // @access  Private/Admin
 exports.deleteOrder = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    // Check if order exists
+    const { data: order } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('id', req.params.id)
+      .single();
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    await Order.findByIdAndDelete(req.params.id);
+    // Delete order
+    const { error: deleteError } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (deleteError) {
+      return res.status(500).json({ success: false, message: deleteError.message });
+    }
 
     res.status(200).json({ success: true, message: 'Order deleted successfully' });
   } catch (error) {

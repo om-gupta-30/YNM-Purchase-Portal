@@ -133,7 +133,9 @@ async function addProduct(productName, subType, unit, notes) {
         };
         
         // Save via API
-        const savedProduct = await productsAPI.create(productData);
+        const savedProductResponse = await productsAPI.create(productData);
+        // Backend usually returns { success: true, data: product }
+        const savedProduct = (savedProductResponse && savedProductResponse.data) ? savedProductResponse.data : savedProductResponse;
         
         // Add to local array
         const newProduct = {

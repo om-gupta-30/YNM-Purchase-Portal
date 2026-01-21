@@ -1281,7 +1281,9 @@ async function handleFormSubmit(e) {
 
     try {
         // Save order via API
-        const savedOrder = await ordersAPI.create(orderData);
+        const savedOrderResponse = await ordersAPI.create(orderData);
+        // Backend usually returns { success: true, data: order }
+        const savedOrder = (savedOrderResponse && savedOrderResponse.data) ? savedOrderResponse.data : savedOrderResponse;
         
         if (!savedOrder) {
             throw new Error('No order data returned from server');
@@ -1300,8 +1302,16 @@ async function handleFormSubmit(e) {
             transportCost: savedOrder.transportCost || orderData.transportCost,
             manufacturerCost: savedOrder.productCost || orderData.productCost,
             totalCost: savedOrder.totalCost || orderData.totalCost,
-            date: orderDate
+            date: savedOrder.createdAt
+                ? new Date(savedOrder.createdAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })
+                : orderDate,
+            createdAt: savedOrder.createdAt || new Date().toISOString()
         };
+        
+        // If we didn't get an ID back, we can't reliably render/search/delete; fail loudly.
+        if (!order.id) {
+            throw new Error('Order was created but no ID was returned from server. Please refresh and try again.');
+        }
         orders.push(order);
         displayOrders();
         

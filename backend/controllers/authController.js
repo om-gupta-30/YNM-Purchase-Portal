@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const { supabase } = require('../config/supabase');
 const jwt = require('jsonwebtoken');
 const { validateUsername } = require('../middleware/validation');
 
@@ -20,25 +20,42 @@ exports.login = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide username and password' });
     }
 
-    const user = await User.findOne({ username });
+    // Find user by username
+    const { data: user, error: findError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .limit(1)
+      .maybeSingle();
+
+    if (findError) {
+      console.error('Database error during login:', findError);
+      // Check if table doesn't exist
+      if (findError.code === 'PGRST116' || findError.message.includes('relation') || findError.message.includes('does not exist')) {
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Database tables not found. Please run the SQL migration in Supabase first.' 
+        });
+      }
+      return res.status(500).json({ success: false, message: 'Database error: ' + findError.message });
+    }
 
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    const isMatch = await user.matchPassword(password);
-
-    if (!isMatch) {
+    // Compare password (plain text comparison - passwords stored in plain text)
+    if (password !== user.password) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    const token = generateToken(user._id);
+    const token = generateToken(user.id);
 
     res.status(200).json({
       success: true,
       token,
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
         role: user.role
       }
@@ -59,25 +76,41 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide username and password' });
     }
 
-    const userExists = await User.findOne({ username });
+    // Check if user exists
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('username', username)
+      .limit(1)
+      .single();
 
-    if (userExists) {
+    if (existingUser) {
       return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
-    const user = await User.create({
-      username,
-      password,
-      role: role || 'employee'
-    });
+    // Store password in plain text (as requested)
+    // Create user
+    const { data: user, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        username,
+        password: password, // Plain text password
+        role: role || 'employee'
+      })
+      .select()
+      .single();
 
-    const token = generateToken(user._id);
+    if (insertError) {
+      return res.status(500).json({ success: false, message: insertError.message });
+    }
+
+    const token = generateToken(user.id);
 
     res.status(201).json({
       success: true,
       token,
       user: {
-        id: user._id,
+        id: user.id,
         username: user.username,
         role: user.role
       }
@@ -92,7 +125,16 @@ exports.register = async (req, res) => {
 // @access  Private
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, username, role, created_at')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
     res.status(200).json({ success: true, user });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -104,8 +146,17 @@ exports.getMe = async (req, res) => {
 // @access  Private/Admin
 exports.getEmployees = async (req, res) => {
   try {
-    const employees = await User.find({ role: 'employee' }).select('username role').sort({ username: 1 });
-    res.status(200).json({ success: true, data: employees });
+    const { data: employees, error } = await supabase
+      .from('users')
+      .select('id, username, role')
+      .eq('role', 'employee')
+      .order('username', { ascending: true });
+
+    if (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+
+    res.status(200).json({ success: true, data: employees || [] });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

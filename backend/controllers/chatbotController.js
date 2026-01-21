@@ -1,18 +1,12 @@
-const Manufacturer = require('../models/Manufacturer');
-const Product = require('../models/Product');
-const Order = require('../models/Order');
-const Task = require('../models/Task');
-const Location = require('../models/Location');
-const OpenAI = require('openai');
+const { supabase } = require('../config/supabase');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-// Check if API key is available
-if (!process.env.OPENAI_API_KEY) {
-  console.error('WARNING: OPENAI_API_KEY is not set in environment variables!');
+// Initialize Gemini client
+let genAI = null;
+if (process.env.GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+} else {
+  console.error('WARNING: GEMINI_API_KEY is not set in environment variables!');
 }
 
 // Rate limiting: Track requests per user (by IP or user ID)
@@ -94,11 +88,20 @@ async function getDatabaseContext() {
 
   try {
     console.log('Fetching fresh database context...');
-    const manufacturers = await Manufacturer.find().lean();
-    const products = await Product.find().lean();
-    const orders = await Order.find().lean().sort({ createdAt: -1 }).limit(20); // Reduced from 50 to 20
-    const tasks = await Task.find().lean().sort({ createdAt: -1 }).limit(20); // Reduced from 50 to 20
-    const locations = await Location.find().lean();
+    
+    const [manufacturersResult, productsResult, ordersResult, tasksResult, locationsResult] = await Promise.all([
+      supabase.from('manufacturers').select('*'),
+      supabase.from('products').select('*'),
+      supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(20),
+      supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(20),
+      supabase.from('locations').select('*')
+    ]);
+
+    const manufacturers = manufacturersResult.data || [];
+    const products = productsResult.data || [];
+    const orders = ordersResult.data || [];
+    const tasks = tasksResult.data || [];
+    const locations = locationsResult.data || [];
 
     const contextData = {
       products: products.map(p => ({
@@ -111,32 +114,32 @@ async function getDatabaseContext() {
         name: m.name,
         location: m.location,
         contact: m.contact,
-        productsOffered: m.productsOffered
+        productsOffered: m.products_offered || []
       })),
       orders: orders.map(o => ({
         manufacturer: o.manufacturer,
         product: o.product,
-        productType: o.productType,
+        productType: o.product_type,
         quantity: o.quantity,
-        fromLocation: o.fromLocation,
-        toLocation: o.toLocation,
-        transportCost: o.transportCost,
-        productCost: o.productCost,
-        totalCost: o.totalCost,
-        createdAt: o.createdAt
+        fromLocation: o.from_location,
+        toLocation: o.to_location,
+        transportCost: o.transport_cost,
+        productCost: o.product_cost,
+        totalCost: o.total_cost,
+        createdAt: o.created_at
       })),
       tasks: tasks.map(t => ({
-        taskText: t.taskText,
-        assignedTo: t.assignedTo,
+        taskText: t.task_text,
+        assignedTo: t.assigned_to,
         date: t.date,
         status: t.status,
-        statusUpdate: t.statusUpdate || '',
-        createdAt: t.createdAt
+        statusUpdate: t.status_update || '',
+        createdAt: t.created_at
       })),
       locations: locations.map(l => ({
-        locationId: l.Location_ID,
-        city: l.City,
-        state: l.State,
+        locationId: l.location_id,
+        city: l.city,
+        state: l.state,
         latitude: l.latitude,
         longitude: l.longitude
       }))
@@ -229,109 +232,84 @@ Database Context:
 ${finalContext}`;
 
     // Check if API key exists
-    if (!process.env.OPENAI_API_KEY) {
-      console.error('OpenAI API key is missing!');
+    if (!process.env.GEMINI_API_KEY || !genAI) {
+      console.error('Gemini API key is missing!');
       return res.status(500).json({
         success: false,
         answer: 'AI service is not configured. Please contact the administrator.'
       });
     }
 
-    // Call OpenAI API
+    // Call Gemini API
     try {
-      console.log('Calling OpenAI API with question:', trimmedQuestion.substring(0, 50) + '...');
+      console.log('Calling Gemini API with question:', trimmedQuestion.substring(0, 50) + '...');
       
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo', // Using gpt-3.5-turbo - cheapest model for free tier users
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user',
-            content: trimmedQuestion
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 300 // Reduced from 500 to 300 to save tokens
-      });
-
-      const answer = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
-      const tokensUsed = completion.usage?.total_tokens || 0;
-      const estimatedCost = (tokensUsed * 0.000002).toFixed(6); // gpt-3.5-turbo pricing
+      // Get the generative model (using gemini-1.5-flash for better performance)
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
       
-      console.log(`[Chatbot] Response received | Tokens: ${tokensUsed} | Est. cost: $${estimatedCost}`);
+      // Combine system prompt and user question for Gemini
+      const fullPrompt = `${systemPrompt}\n\nUser Question: ${trimmedQuestion}`;
+      
+      const result = await model.generateContent(fullPrompt);
+      const response = await result.response;
+      const answer = response.text() || 'Sorry, I could not generate a response.';
+      
+      console.log(`[Chatbot] Response received from Gemini`);
 
       res.status(200).json({
         success: true,
         answer: answer
       });
 
-    } catch (openaiError) {
+    } catch (geminiError) {
       // Log full error details for debugging
-      console.error('=== OpenAI API Error ===');
-      console.error('Error message:', openaiError.message);
-      console.error('Error status:', openaiError.status);
-      console.error('Error code:', openaiError.code);
-      console.error('Error type:', openaiError.type);
-      console.error('Error response:', openaiError.response?.data);
-      console.error('Full error:', JSON.stringify(openaiError, null, 2));
+      console.error('=== Gemini API Error ===');
+      console.error('Error message:', geminiError.message);
+      console.error('Error status:', geminiError.status);
+      console.error('Error code:', geminiError.code);
+      console.error('Full error:', JSON.stringify(geminiError, null, 2));
       console.error('======================');
       
       // Handle API key errors
-      if (openaiError.status === 401 || openaiError.code === 'invalid_api_key' || 
-          (openaiError.response && openaiError.response.status === 401)) {
+      if (geminiError.status === 401 || geminiError.status === 403 || 
+          geminiError.message?.includes('API key') || 
+          geminiError.message?.includes('authentication')) {
         return res.status(500).json({
           success: false,
           answer: 'AI service authentication failed. The API key may be invalid or expired. Please contact the administrator.'
         });
       }
 
-      // Handle quota exceeded (different from rate limits)
-      if (openaiError.code === 'insufficient_quota' || 
-          (openaiError.response && openaiError.response.data && 
-           openaiError.response.data.error && 
-           openaiError.response.data.error.code === 'insufficient_quota') ||
-          (openaiError.message && openaiError.message.includes('exceeded your current quota'))) {
+      // Handle quota exceeded
+      if (geminiError.status === 429 || 
+          geminiError.message?.includes('quota') ||
+          geminiError.message?.includes('rate limit')) {
         return res.status(429).json({
           success: false,
-          answer: 'The AI service quota has been exceeded. Please check your OpenAI account billing and add credits, or contact the administrator to resolve this issue.'
-        });
-      }
-
-      // Handle rate limits (temporary, can retry)
-      if (openaiError.status === 429 || openaiError.code === 'rate_limit_exceeded' ||
-          (openaiError.response && openaiError.response.status === 429 && 
-           openaiError.code !== 'insufficient_quota')) {
-        return res.status(429).json({
-          success: false,
-          answer: 'AI service is currently busy due to rate limits. Please wait a moment and try again.'
+          answer: 'The AI service quota has been exceeded or rate limit reached. Please try again later or contact the administrator.'
         });
       }
 
       // Handle network errors
-      if (openaiError.code === 'ECONNREFUSED' || openaiError.code === 'ETIMEDOUT' || 
-          openaiError.message?.includes('fetch failed')) {
+      if (geminiError.code === 'ECONNREFUSED' || geminiError.code === 'ETIMEDOUT' || 
+          geminiError.message?.includes('fetch failed') ||
+          geminiError.message?.includes('network')) {
         return res.status(500).json({
           success: false,
           answer: 'Unable to connect to AI service. Please check your internet connection and try again.'
         });
       }
 
-      // Handle model not found or other API errors
-      if (openaiError.response && openaiError.response.data) {
-        const errorData = openaiError.response.data;
-        if (errorData.error && errorData.error.message) {
-          return res.status(500).json({
-            success: false,
-            answer: `AI service error: ${errorData.error.message}. Please try again.`
-          });
-        }
+      // Handle content safety errors (Gemini-specific)
+      if (geminiError.message?.includes('safety') || geminiError.message?.includes('blocked')) {
+        return res.status(400).json({
+          success: false,
+          answer: 'The question was blocked by content safety filters. Please rephrase your question.'
+        });
       }
 
-      // Generic error - show actual error message for debugging
-      const errorMsg = openaiError.message || 'Unknown error occurred';
+      // Generic error
+      const errorMsg = geminiError.message || 'Unknown error occurred';
       console.error('Returning generic error:', errorMsg);
       return res.status(500).json({
         success: false,

@@ -3,8 +3,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const mongoose = require('mongoose');
-const connectDB = require('./config/db');
+const { connectDB } = require('./config/supabase');
 
 // Load env vars
 dotenv.config({ path: path.join(__dirname, '.env') });
@@ -16,9 +15,38 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Enable CORS
+// - Allow localhost/dev
+// - Allow any Vercel preview/prod domain (*.vercel.app)
+// - Optionally allow a specific origin via FRONTEND_ORIGIN env var
+const allowedOrigins = new Set([
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5002",
+  "http://127.0.0.1:5002"
+]);
+
+if (process.env.FRONTEND_ORIGIN) {
+  allowedOrigins.add(process.env.FRONTEND_ORIGIN);
+}
+
 app.use(cors({
-  origin: ["https://ynm-safety-portal-2.vercel.app"],
-  credentials: true
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, server-to-server, health checks)
+    if (!origin) return callback(null, true);
+
+    // Allow all Vercel preview/prod URLs
+    if (/^https:\/\/.*\.vercel\.app$/i.test(origin)) return callback(null, true);
+
+    // Allow explicit known origins
+    if (allowedOrigins.has(origin)) return callback(null, true);
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Serve static files from frontend/public
@@ -41,12 +69,22 @@ app.use('/api/pdf', require('./routes/pdf'));
 app.use('/api/chatbot', require('./routes/chatbotRoutes'));
 
 // Health check
-app.get('/api/health', (req, res) => {
-  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-  res.json({ 
-    status: 'ok', 
-    db: dbStatus 
-  });
+app.get('/api/health', async (req, res) => {
+  const { supabase } = require('./config/supabase');
+  try {
+    // Test query to verify connection
+    const { error } = await supabase.from('users').select('count').limit(1);
+    const dbStatus = error && error.code === 'PGRST116' ? 'tables_not_created' : 'connected';
+    res.json({ 
+      status: 'ok', 
+      db: dbStatus 
+    });
+  } catch (error) {
+    res.json({ 
+      status: 'ok', 
+      db: 'error' 
+    });
+  }
 });
 
 const PORT = process.env.PORT || 5002;

@@ -1,4 +1,4 @@
-const Task = require('../models/Task');
+const { supabase } = require('../config/supabase');
 
 // Helper function for fuzzy matching
 function normalizeText(text) {
@@ -53,13 +53,27 @@ exports.getTasks = async (req, res) => {
       query.status = statusMap[req.query.status] || req.query.status.toLowerCase();
     }
 
-    const tasks = await Task.find(query).sort({ date: -1 });
+    // Build Supabase query
+    let supabaseQuery = supabase.from('tasks').select('*');
+
+    if (query.assignedTo) {
+      supabaseQuery = supabaseQuery.eq('assigned_to', query.assignedTo);
+    }
+    if (query.status) {
+      supabaseQuery = supabaseQuery.eq('status', query.status);
+    }
+
+    const { data: tasks, error } = await supabaseQuery.order('date', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
 
     // Transform to frontend format
-    const transformedTasks = tasks.map(task => {
-      const taskTextParts = task.taskText.split('\n');
-      const title = taskTextParts[0] || task.taskText;
-      const description = taskTextParts.slice(1).join('\n') || task.taskText;
+    const transformedTasks = (tasks || []).map(task => {
+      const taskTextParts = task.task_text.split('\n');
+      const title = taskTextParts[0] || task.task_text;
+      const description = taskTextParts.slice(1).join('\n') || task.task_text;
       
       // Check if task is carried forward (deadline passed and status is pending)
       const today = new Date();
@@ -69,46 +83,49 @@ exports.getTasks = async (req, res) => {
       const isCarriedForward = task.status === 'pending' && taskDate < today;
       
       // Migrate old status updates to history if history is empty but statusUpdate exists
-      let statusHistory = task.statusHistory || [];
+      let statusHistory = task.status_history || [];
       if (statusHistory.length === 0) {
-        // Check if we have old statusUpdate or employeeStatus that should be migrated
-        const statusUpdate = task.statusUpdate || '';
-        const employeeStatus = task.employeeStatus || '';
+        const statusUpdate = task.status_update || '';
+        const employeeStatus = task.employee_status || '';
         
         if (statusUpdate && statusUpdate.trim()) {
           statusHistory.push({
             statusText: statusUpdate.trim(),
-            updatedAt: task.statusUpdatedAt || task.lastUpdatedOn || task.createdAt || new Date()
+            updatedAt: task.status_updated_at || task.last_updated_on || task.created_at || new Date()
           });
         } else if (employeeStatus && employeeStatus.trim()) {
           statusHistory.push({
             statusText: employeeStatus.trim(),
-            updatedAt: task.lastUpdatedOn || task.createdAt || new Date()
+            updatedAt: task.last_updated_on || task.created_at || new Date()
           });
         }
         
         // If we migrated data, save it back to the database (async, don't wait)
         if (statusHistory.length > 0) {
-          task.statusHistory = statusHistory;
-          task.save().catch(err => console.error('Error migrating status history:', err));
+          supabase
+            .from('tasks')
+            .update({ status_history: statusHistory })
+            .eq('id', task.id)
+            .then(() => {})
+            .catch(err => console.error('Error migrating status history:', err));
         }
       }
       
       return {
-        _id: task._id,
-        id: task._id,
-        employee: task.assignedTo,
+        _id: task.id,
+        id: task.id,
+        employee: task.assigned_to,
         title: title,
         description: description,
         deadline: task.date,
-        assignedDate: task.createdAt,
+        assignedDate: task.created_at,
         status: isCarriedForward ? 'Carried Forward' : (task.status.charAt(0).toUpperCase() + task.status.slice(1)),
-        statusUpdate: task.statusUpdate || '',
-        statusUpdatedAt: task.statusUpdatedAt || null,
-        employeeStatus: task.employeeStatus || '',
-        lastUpdatedOn: task.lastUpdatedOn || null,
+        statusUpdate: task.status_update || '',
+        statusUpdatedAt: task.status_updated_at || null,
+        employeeStatus: task.employee_status || '',
+        lastUpdatedOn: task.last_updated_on || null,
         statusHistory: statusHistory,
-        createdAt: task.createdAt
+        createdAt: task.created_at
       };
     });
 
@@ -145,19 +162,21 @@ exports.createTask = async (req, res) => {
     }
 
     // Check for exact duplicate tasks only (same employee, same date, exact same title)
-    // This prevents accidental exact duplicates while allowing similar tasks
-    const allTasks = await Task.find();
+    const { data: allTasks } = await supabase
+      .from('tasks')
+      .select('*');
+
     const taskDate = new Date(date);
     const taskDateStr = taskDate.toISOString().split('T')[0];
     const taskTitle = normalizeText(taskText.split('\n')[0] || taskText);
     
-    for (const existingTask of allTasks) {
+    for (const existingTask of (allTasks || [])) {
       const existingDate = new Date(existingTask.date);
       const existingDateStr = existingDate.toISOString().split('T')[0];
-      const existingTitle = normalizeText(existingTask.taskText.split('\n')[0] || existingTask.taskText);
+      const existingTitle = normalizeText(existingTask.task_text.split('\n')[0] || existingTask.task_text);
       
       const titleMatch = taskTitle === existingTitle;
-      const employeeMatch = normalizeText(assignedTo) === normalizeText(existingTask.assignedTo);
+      const employeeMatch = normalizeText(assignedTo) === normalizeText(existingTask.assigned_to);
       const dateMatch = taskDateStr === existingDateStr;
       
       // Only block if it's an EXACT duplicate (same employee, same date, exact same title)
@@ -166,8 +185,8 @@ exports.createTask = async (req, res) => {
           success: false,
           message: 'Duplicate entry detected',
           existing: {
-            assignedTo: existingTask.assignedTo,
-            title: existingTask.taskText.split('\n')[0] || existingTask.taskText,
+            assignedTo: existingTask.assigned_to,
+            title: existingTask.task_text.split('\n')[0] || existingTask.task_text,
             date: existingTask.date,
             status: existingTask.status
           }
@@ -175,25 +194,33 @@ exports.createTask = async (req, res) => {
       }
     }
 
-    const task = await Task.create({
-      assignedTo,
-      assignedBy: req.user.username,
-      date: new Date(date),
-      taskText,
-      status: status === 'completed' ? 'completed' : 'pending'
-    });
+    const { data: task, error: insertError } = await supabase
+      .from('tasks')
+      .insert({
+        assigned_to: assignedTo,
+        assigned_by: req.user.username,
+        date: new Date(date),
+        task_text: taskText,
+        status: status === 'completed' ? 'completed' : 'pending'
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return res.status(500).json({ success: false, message: insertError.message });
+    }
 
     // Return in format frontend expects
     const response = {
-      _id: task._id,
-      id: task._id,
-      employee: task.assignedTo,
-      title: task.taskText.split('\n')[0] || task.taskText,
-      description: task.taskText.split('\n').slice(1).join('\n') || task.taskText,
+      _id: task.id,
+      id: task.id,
+      employee: task.assigned_to,
+      title: task.task_text.split('\n')[0] || task.task_text,
+      description: task.task_text.split('\n').slice(1).join('\n') || task.task_text,
       deadline: task.date,
-      assignedDate: task.createdAt,
+      assignedDate: task.created_at,
       status: task.status.charAt(0).toUpperCase() + task.status.slice(1),
-      createdAt: task.createdAt
+      createdAt: task.created_at
     };
 
     res.status(201).json({ success: true, data: response });
@@ -207,44 +234,89 @@ exports.createTask = async (req, res) => {
 // @access  Private
 exports.updateTask = async (req, res) => {
   try {
-    let task = await Task.findById(req.params.id);
+    // Get existing task
+    const { data: existingTask, error: findError } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
 
-    if (!task) {
+    if (findError || !existingTask) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
     // Employees can only update status and statusUpdate of their own tasks
     if (req.user.role === 'employee') {
-      if (task.assignedTo !== req.user.username) {
+      if (existingTask.assigned_to !== req.user.username) {
         return res.status(403).json({ success: false, message: 'Not authorized to update this task' });
       }
       
+      const updateData = {};
+      
       // Allow employees to update status
       if (req.body.status) {
-        // Map frontend status to backend
         const statusMap = {
           'Pending': 'pending',
           'Completed': 'completed',
           'Carried Forward': 'pending'
         };
-        task.status = statusMap[req.body.status] || req.body.status.toLowerCase();
+        updateData.status = statusMap[req.body.status] || req.body.status.toLowerCase();
       }
       
       // Allow employees to update statusUpdate (work status)
       if (req.body.statusUpdate !== undefined) {
-        task.statusUpdate = req.body.statusUpdate || '';
-        task.statusUpdatedAt = new Date();
+        updateData.status_update = req.body.statusUpdate || '';
+        updateData.status_updated_at = new Date();
       }
       
-      await task.save();
+      const { data: task, error: updateError } = await supabase
+        .from('tasks')
+        .update(updateData)
+        .eq('id', req.params.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        return res.status(500).json({ success: false, message: updateError.message });
+      }
+
+      // Return in frontend format
+      const taskTextParts = task.task_text.split('\n');
+      const title = taskTextParts[0] || task.task_text;
+      const description = taskTextParts.slice(1).join('\n') || task.task_text;
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const taskDate = new Date(task.date);
+      taskDate.setHours(0, 0, 0, 0);
+      const isCarriedForward = task.status === 'pending' && taskDate < today;
+      
+      const response = {
+        _id: task.id,
+        id: task.id,
+        employee: task.assigned_to,
+        title: title,
+        description: description,
+        deadline: task.date,
+        assignedDate: task.created_at,
+        status: isCarriedForward ? 'Carried Forward' : (task.status.charAt(0).toUpperCase() + task.status.slice(1)),
+        statusUpdate: task.status_update || '',
+        statusUpdatedAt: task.status_updated_at || null,
+        employeeStatus: task.employee_status || '',
+        lastUpdatedOn: task.last_updated_on || null,
+        statusHistory: task.status_history || [],
+        createdAt: task.created_at
+      };
+
+      return res.status(200).json({ success: true, data: response });
     } else {
       // Admin can update all fields - support both formats
       const updateData = {};
       
       if (req.body.employee) {
-        updateData.assignedTo = req.body.employee;
+        updateData.assigned_to = req.body.employee;
       } else if (req.body.assignedTo) {
-        updateData.assignedTo = req.body.assignedTo;
+        updateData.assigned_to = req.body.assignedTo;
       }
       
       if (req.body.deadline) {
@@ -254,9 +326,9 @@ exports.updateTask = async (req, res) => {
       }
       
       if (req.body.title || req.body.description) {
-        updateData.taskText = `${req.body.title || ''}\n${req.body.description || ''}`.trim();
+        updateData.task_text = `${req.body.title || ''}\n${req.body.description || ''}`.trim();
       } else if (req.body.taskText) {
-        updateData.taskText = req.body.taskText;
+        updateData.task_text = req.body.taskText;
       }
       
       if (req.body.status) {
@@ -268,41 +340,47 @@ exports.updateTask = async (req, res) => {
         updateData.status = statusMap[req.body.status] || req.body.status.toLowerCase();
       }
       
-      task = await Task.findByIdAndUpdate(req.params.id, updateData, {
-        new: true,
-        runValidators: true
-      });
+      const { data: task, error: updateError } = await supabase
+        .from('tasks')
+        .update(updateData)
+        .eq('id', req.params.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        return res.status(500).json({ success: false, message: updateError.message });
+      }
+
+      // Return in frontend format
+      const taskTextParts = task.task_text.split('\n');
+      const title = taskTextParts[0] || task.task_text;
+      const description = taskTextParts.slice(1).join('\n') || task.task_text;
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const taskDate = new Date(task.date);
+      taskDate.setHours(0, 0, 0, 0);
+      const isCarriedForward = task.status === 'pending' && taskDate < today;
+      
+      const response = {
+        _id: task.id,
+        id: task.id,
+        employee: task.assigned_to,
+        title: title,
+        description: description,
+        deadline: task.date,
+        assignedDate: task.created_at,
+        status: isCarriedForward ? 'Carried Forward' : (task.status.charAt(0).toUpperCase() + task.status.slice(1)),
+        statusUpdate: task.status_update || '',
+        statusUpdatedAt: task.status_updated_at || null,
+        employeeStatus: task.employee_status || '',
+        lastUpdatedOn: task.last_updated_on || null,
+        statusHistory: task.status_history || [],
+        createdAt: task.created_at
+      };
+
+      return res.status(200).json({ success: true, data: response });
     }
-
-    // Return in frontend format
-    const taskTextParts = task.taskText.split('\n');
-    const title = taskTextParts[0] || task.taskText;
-    const description = taskTextParts.slice(1).join('\n') || task.taskText;
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const taskDate = new Date(task.date);
-    taskDate.setHours(0, 0, 0, 0);
-    const isCarriedForward = task.status === 'pending' && taskDate < today;
-    
-    const response = {
-      _id: task._id,
-      id: task._id,
-      employee: task.assignedTo,
-      title: title,
-      description: description,
-      deadline: task.date,
-      assignedDate: task.createdAt,
-      status: isCarriedForward ? 'Carried Forward' : (task.status.charAt(0).toUpperCase() + task.status.slice(1)),
-      statusUpdate: task.statusUpdate || '',
-      statusUpdatedAt: task.statusUpdatedAt || null,
-      employeeStatus: task.employeeStatus || '',
-      lastUpdatedOn: task.lastUpdatedOn || null,
-      statusHistory: task.statusHistory || [],
-      createdAt: task.createdAt
-    };
-
-    res.status(200).json({ success: true, data: response });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -313,13 +391,26 @@ exports.updateTask = async (req, res) => {
 // @access  Private/Admin
 exports.deleteTask = async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id);
+    // Check if task exists
+    const { data: task } = await supabase
+      .from('tasks')
+      .select('id')
+      .eq('id', req.params.id)
+      .single();
 
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
-    await Task.findByIdAndDelete(req.params.id);
+    // Delete task
+    const { error: deleteError } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (deleteError) {
+      return res.status(500).json({ success: false, message: deleteError.message });
+    }
 
     res.status(200).json({ success: true, message: 'Task deleted successfully' });
   } catch (error) {
@@ -340,22 +431,23 @@ exports.updateTaskStatus = async (req, res) => {
       });
     }
 
-    const task = await Task.findById(req.params.taskId);
+    const { data: task, error: findError } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('id', req.params.taskId)
+      .single();
 
-    if (!task) {
+    if (findError || !task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
     // Validate that task is assigned to this employee
-    if (task.assignedTo !== req.user.username) {
+    if (task.assigned_to !== req.user.username) {
       return res.status(403).json({ 
         success: false, 
         message: 'Not authorized to update this task. Task is not assigned to you.' 
       });
     }
-
-    // Employees can update status for ALL tasks assigned to them
-    // No restrictions - they can always provide status updates on their assigned tasks
 
     // Get status text from request body
     const { statusText } = req.body;
@@ -367,51 +459,60 @@ exports.updateTaskStatus = async (req, res) => {
       });
     }
 
-    // Update employeeStatus and lastUpdatedOn
-    task.employeeStatus = statusText || '';
-    task.lastUpdatedOn = new Date();
+    // Prepare update data
+    const updateData = {
+      employee_status: statusText || '',
+      last_updated_on: new Date()
+    };
 
     // Add to status history (only if task is not completed and statusText is provided)
     if (task.status !== 'completed' && statusText && statusText.trim()) {
-      if (!task.statusHistory) {
-        task.statusHistory = [];
-      }
-      // Always add to history - don't check if it already exists (allow multiple updates)
-      task.statusHistory.push({
+      const statusHistory = task.status_history || [];
+      statusHistory.push({
         statusText: statusText.trim(),
         updatedAt: new Date()
       });
-      console.log(`[Status History] Added new status update to task ${task._id}. History now has ${task.statusHistory.length} entries.`);
+      updateData.status_history = statusHistory;
+      console.log(`[Status History] Added new status update to task ${task.id}. History now has ${statusHistory.length} entries.`);
     }
 
-    await task.save();
+    const { data: updatedTask, error: updateError } = await supabase
+      .from('tasks')
+      .update(updateData)
+      .eq('id', req.params.taskId)
+      .select()
+      .single();
+
+    if (updateError) {
+      return res.status(500).json({ success: false, message: updateError.message });
+    }
 
     // Return updated task in frontend format
-    const taskTextParts = task.taskText.split('\n');
-    const title = taskTextParts[0] || task.taskText;
-    const description = taskTextParts.slice(1).join('\n') || task.taskText;
+    const taskTextParts = updatedTask.task_text.split('\n');
+    const title = taskTextParts[0] || updatedTask.task_text;
+    const description = taskTextParts.slice(1).join('\n') || updatedTask.task_text;
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const taskDate = new Date(task.date);
+    const taskDate = new Date(updatedTask.date);
     taskDate.setHours(0, 0, 0, 0);
-    const isCarriedForward = task.status === 'pending' && taskDate < today;
+    const isCarriedForward = updatedTask.status === 'pending' && taskDate < today;
     
     const response = {
-      _id: task._id,
-      id: task._id,
-      employee: task.assignedTo,
+      _id: updatedTask.id,
+      id: updatedTask.id,
+      employee: updatedTask.assigned_to,
       title: title,
       description: description,
-      deadline: task.date,
-      assignedDate: task.createdAt,
-      status: isCarriedForward ? 'Carried Forward' : (task.status.charAt(0).toUpperCase() + task.status.slice(1)),
-      statusUpdate: task.statusUpdate || '',
-      statusUpdatedAt: task.statusUpdatedAt || null,
-      employeeStatus: task.employeeStatus || '',
-      lastUpdatedOn: task.lastUpdatedOn || null,
-      statusHistory: task.statusHistory || [],
-      createdAt: task.createdAt
+      deadline: updatedTask.date,
+      assignedDate: updatedTask.created_at,
+      status: isCarriedForward ? 'Carried Forward' : (updatedTask.status.charAt(0).toUpperCase() + updatedTask.status.slice(1)),
+      statusUpdate: updatedTask.status_update || '',
+      statusUpdatedAt: updatedTask.status_updated_at || null,
+      employeeStatus: updatedTask.employee_status || '',
+      lastUpdatedOn: updatedTask.last_updated_on || null,
+      statusHistory: updatedTask.status_history || [],
+      createdAt: updatedTask.created_at
     };
 
     res.status(200).json({ success: true, data: response });
@@ -433,14 +534,18 @@ exports.updateTaskStatusUpdate = async (req, res) => {
       });
     }
 
-    const task = await Task.findById(req.params.id);
+    const { data: task, error: findError } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
 
-    if (!task) {
+    if (findError || !task) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
     // Validate that task is assigned to this employee
-    if (task.assignedTo !== req.user.username) {
+    if (task.assigned_to !== req.user.username) {
       return res.status(403).json({ 
         success: false, 
         message: 'Not authorized to update this task. Task is not assigned to you.' 
@@ -457,49 +562,58 @@ exports.updateTaskStatusUpdate = async (req, res) => {
       });
     }
 
-    // Update statusUpdate and statusUpdatedAt fields
-    task.statusUpdate = statusUpdate || '';
-    task.statusUpdatedAt = new Date();
+    // Prepare update data
+    const updateData = {
+      status_update: statusUpdate || '',
+      status_updated_at: new Date()
+    };
 
     // Add to status history (only if task is not completed and statusUpdate is provided)
     if (task.status !== 'completed' && statusUpdate && statusUpdate.trim()) {
-      if (!task.statusHistory) {
-        task.statusHistory = [];
-      }
-      // Always add to history - don't check if it already exists (allow multiple updates)
-      task.statusHistory.push({
+      const statusHistory = task.status_history || [];
+      statusHistory.push({
         statusText: statusUpdate.trim(),
         updatedAt: new Date()
       });
-      console.log(`[Status History] Added new status update to task ${task._id}. History now has ${task.statusHistory.length} entries.`);
+      updateData.status_history = statusHistory;
+      console.log(`[Status History] Added new status update to task ${task.id}. History now has ${statusHistory.length} entries.`);
     }
 
-    await task.save();
+    const { data: updatedTask, error: updateError } = await supabase
+      .from('tasks')
+      .update(updateData)
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return res.status(500).json({ success: false, message: updateError.message });
+    }
 
     // Return updated task in frontend format
-    const taskTextParts = task.taskText.split('\n');
-    const title = taskTextParts[0] || task.taskText;
-    const description = taskTextParts.slice(1).join('\n') || task.taskText;
+    const taskTextParts = updatedTask.task_text.split('\n');
+    const title = taskTextParts[0] || updatedTask.task_text;
+    const description = taskTextParts.slice(1).join('\n') || updatedTask.task_text;
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const taskDate = new Date(task.date);
+    const taskDate = new Date(updatedTask.date);
     taskDate.setHours(0, 0, 0, 0);
-    const isCarriedForward = task.status === 'pending' && taskDate < today;
+    const isCarriedForward = updatedTask.status === 'pending' && taskDate < today;
     
     const response = {
-      _id: task._id,
-      id: task._id,
-      employee: task.assignedTo,
+      _id: updatedTask.id,
+      id: updatedTask.id,
+      employee: updatedTask.assigned_to,
       title: title,
       description: description,
-      deadline: task.date,
-      assignedDate: task.createdAt,
-      status: isCarriedForward ? 'Carried Forward' : (task.status.charAt(0).toUpperCase() + task.status.slice(1)),
-      statusUpdate: task.statusUpdate || '',
-      statusUpdatedAt: task.statusUpdatedAt || null,
-      statusHistory: task.statusHistory || [],
-      createdAt: task.createdAt
+      deadline: updatedTask.date,
+      assignedDate: updatedTask.created_at,
+      status: isCarriedForward ? 'Carried Forward' : (updatedTask.status.charAt(0).toUpperCase() + updatedTask.status.slice(1)),
+      statusUpdate: updatedTask.status_update || '',
+      statusUpdatedAt: updatedTask.status_updated_at || null,
+      statusHistory: updatedTask.status_history || [],
+      createdAt: updatedTask.created_at
     };
 
     res.status(200).json({ success: true, data: response });

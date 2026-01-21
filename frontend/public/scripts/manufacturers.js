@@ -619,7 +619,7 @@ async function addManufacturer(manufacturerName, productName, productType, locat
         };
         
             // Create via API
-            const newManufacturer = await manufacturersAPI.create({
+            const newManufacturerResponse = await manufacturersAPI.create({
                 name: manufacturerName,
                 location: location,
                 contact: contact,
@@ -628,6 +628,8 @@ async function addManufacturer(manufacturerName, productName, productType, locat
                     price: price
                 }]
             });
+            // Backend usually returns { success: true, data: manufacturer }
+            const newManufacturer = (newManufacturerResponse && newManufacturerResponse.data) ? newManufacturerResponse.data : newManufacturerResponse;
             
             if (newManufacturer) {
                 manufacturerData._id = newManufacturer._id || newManufacturer.id;
