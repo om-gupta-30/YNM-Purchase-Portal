@@ -49,8 +49,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Serve static files from frontend/public
-const frontendPath = path.join(__dirname, '..', 'frontend', 'public');
+// Serve static files from frontend
+const frontendPath = path.join(__dirname, '..', 'frontend');
 app.use(express.static(frontendPath));
 
 // Create uploads directory

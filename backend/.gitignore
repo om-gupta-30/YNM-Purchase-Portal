@@ -9,4 +9,7 @@ ENV/
 uploads/
 *.pdf
 .DS_Store
-
+.env
+.env.*
+!.env.example
+*.log
