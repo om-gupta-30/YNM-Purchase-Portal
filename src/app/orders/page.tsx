@@ -223,7 +223,7 @@ export default function OrdersPage() {
 
   return (
     <div className="container-card max-w-7xl mx-auto p-5 md:p-8 animate-fadeIn">
-      <Header title="Orders" />
+      <Header title="Order History" />
 
       {/* Messages */}
       {error && (
@@ -283,18 +283,6 @@ export default function OrdersPage() {
             className="input w-full pl-12 pr-4 py-3.5"
           />
         </div>
-        {/* Only employees can create orders */}
-        {user?.role === 'employee' && (
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="btn-primary px-6 py-3.5 rounded-xl font-medium flex items-center justify-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Create Order
-          </button>
-        )}
       </div>
 
       {/* Results Count */}

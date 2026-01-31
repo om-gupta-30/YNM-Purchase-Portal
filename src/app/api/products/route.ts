@@ -17,7 +17,13 @@ export async function GET(request: NextRequest) {
       .order('name', { ascending: true });
 
     if (error) {
+      console.error('Products fetch error:', error);
       return Response.json({ success: false, message: error.message }, { status: 500 });
+    }
+    
+    // Log the raw data to help debug
+    if (products && products.length > 0) {
+      console.log('First product raw data:', JSON.stringify(products[0]));
     }
 
     // Transform to frontend format - expand subtypes into separate entries
@@ -31,28 +37,36 @@ export async function GET(request: NextRequest) {
       Specifications: string;
     }> = [];
     
-    (products || []).forEach(product => {
-      if (product.subtypes && product.subtypes.length > 0) {
-        product.subtypes.forEach((subtype: string) => {
+    (products || []).forEach((product: Record<string, unknown>) => {
+      // Get unit and specifications with fallbacks for different column name formats
+      const productUnit = (product.unit || product.Unit || product.UNIT || 'm') as string;
+      const productSpecs = (product.specifications || product.Specifications || product.SPECIFICATIONS || product.specs || '') as string;
+      const productName = (product.name || product.Name || product.product_name || product.Product_Name || '') as string;
+      const productSubtypes = (product.subtypes || product.Subtypes || product.sub_types || []) as string[];
+      
+      const productId = product.id as number;
+      
+      if (productSubtypes && productSubtypes.length > 0) {
+        productSubtypes.forEach((subtype: string) => {
           transformedProducts.push({
-            _id: product.id,
-            id: product.id,
-            Product_ID: `P${String(product.id).padStart(3, '0')}`,
-            Product_Name: product.name,
+            _id: productId,
+            id: productId,
+            Product_ID: `P${String(productId).padStart(3, '0')}`,
+            Product_Name: productName,
             Sub_Type: subtype,
-            Unit: product.unit,
-            Specifications: product.specifications || ''
+            Unit: productUnit,
+            Specifications: productSpecs
           });
         });
       } else {
         transformedProducts.push({
-          _id: product.id,
-          id: product.id,
-          Product_ID: `P${String(product.id).slice(-3)}`,
-          Product_Name: product.name,
-          Sub_Type: product.name,
-          Unit: product.unit,
-          Specifications: product.specifications || ''
+          _id: productId,
+          id: productId,
+          Product_ID: `P${String(productId).padStart(3, '0')}`,
+          Product_Name: productName,
+          Sub_Type: productName,
+          Unit: productUnit,
+          Specifications: productSpecs
         });
       }
     });

@@ -1,62 +1,137 @@
-# Dependencies
-node_modules/
+# ===========================================
+# YNM Safety Purchase Portal - Git Ignore
+# ===========================================
 
-# Next.js
+# -------------------------------------------
+# Dependencies
+# -------------------------------------------
+node_modules/
+.pnp/
+.pnp.js
+
+# -------------------------------------------
+# Next.js Build Output
+# -------------------------------------------
 .next/
 out/
-
-# Production
 build/
 dist/
 
-# Environment files - NEVER commit these!
+# -------------------------------------------
+# Environment Variables - CRITICAL SECURITY
+# -------------------------------------------
+# NEVER commit these files - they contain secrets!
 .env
 .env.local
 .env.*.local
-.env.production
 .env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
 
+# -------------------------------------------
 # Vercel
+# -------------------------------------------
 .vercel/
 
-# Debug logs
+# -------------------------------------------
+# Google Cloud Platform (GCP)
+# -------------------------------------------
+.gcloudignore
+app.yaml
+*.yaml.bak
+service-account*.json
+gcp-credentials*.json
+*-key.json
+
+# -------------------------------------------
+# Debug & Logs
+# -------------------------------------------
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.npm/
+*.log
 
-# IDE
+# -------------------------------------------
+# IDE & Editors
+# -------------------------------------------
 .idea/
 .vscode/
 *.swp
 *.swo
 *.sublime-*
+*.code-workspace
+.project
+.classpath
+.settings/
 
-# OS
+# -------------------------------------------
+# Operating System
+# -------------------------------------------
 .DS_Store
 .DS_Store?
 ._*
-Thumbs.db
+.Spotlight-V100
+.Trashes
 ehthumbs.db
+Thumbs.db
+Desktop.ini
 
+# -------------------------------------------
 # TypeScript
+# -------------------------------------------
 *.tsbuildinfo
 next-env.d.ts
 
-# Test coverage
+# -------------------------------------------
+# Testing
+# -------------------------------------------
 coverage/
 .nyc_output/
+*.lcov
+.jest/
 
-# Security - Never commit these
+# -------------------------------------------
+# Security - Sensitive Files
+# -------------------------------------------
+# Private keys and certificates
 *.pem
 *.key
 *.cert
+*.crt
 *.p12
+*.pfx
+
+# Credential files
 secrets/
 credentials/
+*.secret
+*_secret*
+*_credentials*
 
-# Misc
-*.log
+# SSH keys
+id_rsa*
+id_ed25519*
+*.pub
+
+# -------------------------------------------
+# Miscellaneous
+# -------------------------------------------
 *.tmp
 *.temp
+*.bak
+*.backup
 .cache/
+.parcel-cache/
+.turbo/
+
+# Local development files
+*.local
+.env.local.backup
+
+# Generated files
+*.generated.*

@@ -147,13 +147,26 @@ export default function TransportPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const leafletRef = useRef<any>(null);
 
+  // Track if component is mounted
+  const isMountedRef = useRef(false);
+
   // Initialize Leaflet map
   const initializeMap = useCallback(async () => {
+    // Don't initialize if already initialized or container doesn't exist
     if (!mapRef.current || leafletMapRef.current) return;
+    
+    // Check if container already has a map (React Strict Mode double mount)
+    const container = mapRef.current as HTMLElement & { _leaflet_id?: number };
+    if (container._leaflet_id) {
+      return;
+    }
     
     // Dynamically import Leaflet
     const L = await import('leaflet');
     leafletRef.current = L;
+    
+    // Double check after async import
+    if (!mapRef.current || leafletMapRef.current) return;
     
     // Create map centered on India
     const map = L.map(mapRef.current).setView([20.5937, 78.9629], 5);
@@ -176,11 +189,25 @@ export default function TransportPage() {
 
   // Initialize map on mount
   useEffect(() => {
-    initializeMap();
+    isMountedRef.current = true;
+    
+    // Small delay to ensure DOM is ready
+    const timer = setTimeout(() => {
+      if (isMountedRef.current) {
+        initializeMap();
+      }
+    }, 100);
     
     return () => {
+      isMountedRef.current = false;
+      clearTimeout(timer);
+      
       if (leafletMapRef.current) {
-        leafletMapRef.current.remove();
+        try {
+          leafletMapRef.current.remove();
+        } catch {
+          // Ignore errors during cleanup
+        }
         leafletMapRef.current = null;
       }
     };

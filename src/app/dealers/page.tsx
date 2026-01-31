@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useAuthFetch } from '@/hooks/useAuth';
 import Header from '@/components/layout/Header';
+import { validators, formatPhone, formatGST, formatPAN, formatPincode, formatIFSC, formatBankAccount } from '@/utils/validation';
 
 interface ProductOffered {
   productType: string;
@@ -75,7 +76,9 @@ export default function DealersPage() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingDealer, setEditingDealer] = useState<Dealer | null>(null);
+  const [viewingDealer, setViewingDealer] = useState<Dealer | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -117,6 +120,84 @@ export default function DealersPage() {
     agreementStartDate: '',
     agreementEndDate: '',
   });
+
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    
+    // Required fields
+    if (!formData.companyName.trim()) errors.companyName = 'Company name is required';
+    
+    // Phone validation (10 digits)
+    if (formData.phone) {
+      const phoneResult = validators.phone(formData.phone);
+      if (!phoneResult.valid) errors.phone = phoneResult.message;
+    }
+    if (formData.mobile) {
+      const mobileResult = validators.phone(formData.mobile);
+      if (!mobileResult.valid) errors.mobile = mobileResult.message;
+    }
+    if (formData.contactPersonPhone) {
+      const cpPhoneResult = validators.phone(formData.contactPersonPhone);
+      if (!cpPhoneResult.valid) errors.contactPersonPhone = cpPhoneResult.message;
+    }
+    
+    // Email validation
+    if (formData.email) {
+      const emailResult = validators.email(formData.email);
+      if (!emailResult.valid) errors.email = emailResult.message;
+    }
+    if (formData.contactPersonEmail) {
+      const cpEmailResult = validators.email(formData.contactPersonEmail);
+      if (!cpEmailResult.valid) errors.contactPersonEmail = cpEmailResult.message;
+    }
+    
+    // GST validation
+    if (formData.gstNumber) {
+      const gstResult = validators.gst(formData.gstNumber);
+      if (!gstResult.valid) errors.gstNumber = gstResult.message;
+    }
+    
+    // PAN validation
+    if (formData.panNumber) {
+      const panResult = validators.pan(formData.panNumber);
+      if (!panResult.valid) errors.panNumber = panResult.message;
+    }
+    
+    // PIN code validation (6 digits)
+    if (formData.pinCode) {
+      const pinResult = validators.pincode(formData.pinCode);
+      if (!pinResult.valid) errors.pinCode = pinResult.message;
+    }
+    
+    // IFSC validation
+    if (formData.bankIFSC) {
+      const ifscResult = validators.ifsc(formData.bankIFSC);
+      if (!ifscResult.valid) errors.bankIFSC = ifscResult.message;
+    }
+    
+    // Bank account validation
+    if (formData.bankAccountNumber) {
+      const bankResult = validators.bankAccount(formData.bankAccountNumber);
+      if (!bankResult.valid) errors.bankAccountNumber = bankResult.message;
+    }
+    
+    // Website validation
+    if (formData.website) {
+      const websiteResult = validators.website(formData.website);
+      if (!websiteResult.valid) errors.website = websiteResult.message;
+    }
+    
+    // Year validation
+    if (formData.establishmentYear) {
+      const yearResult = validators.year(formData.establishmentYear);
+      if (!yearResult.valid) errors.establishmentYear = yearResult.message;
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   // Redirect if not logged in
   useEffect(() => {
@@ -233,13 +314,14 @@ export default function DealersPage() {
 
   const handleAddDealer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.companyName.trim()) {
-      setError('Company name is required');
+    setError('');
+    
+    if (!validateForm()) {
+      setError('Please fix the validation errors before submitting');
       return;
     }
 
     setIsSubmitting(true);
-    setError('');
 
     try {
       const response = await authFetch('/api/dealers', {
@@ -252,6 +334,7 @@ export default function DealersPage() {
         setSuccess('Dealer added successfully!');
         setShowAddModal(false);
         resetForm();
+        setValidationErrors({});
         fetchData();
       } else {
         const data = await response.json();
@@ -268,8 +351,14 @@ export default function DealersPage() {
     e.preventDefault();
     if (!editingDealer) return;
 
-    setIsSubmitting(true);
     setError('');
+    
+    if (!validateForm()) {
+      setError('Please fix the validation errors before submitting');
+      return;
+    }
+    
+    setIsSubmitting(true);
 
     try {
       const response = await authFetch(`/api/dealers/${editingDealer.id}`, {
@@ -283,6 +372,7 @@ export default function DealersPage() {
         setShowEditModal(false);
         setEditingDealer(null);
         resetForm();
+        setValidationErrors({});
         fetchData();
       } else {
         const data = await response.json();
@@ -358,6 +448,11 @@ export default function DealersPage() {
     setShowEditModal(true);
   };
 
+  const openViewModal = (dealer: Dealer) => {
+    setViewingDealer(dealer);
+    setShowViewModal(true);
+  };
+
   // Product field management
   const addProductField = () => {
     setFormData({
@@ -408,11 +503,12 @@ export default function DealersPage() {
             <input
               type="text"
               value={formData.companyName}
-              onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, companyName: e.target.value }); setValidationErrors({...validationErrors, companyName: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.companyName ? 'border-red-500' : ''}`}
               placeholder="Enter company name"
               required
             />
+            {validationErrors.companyName && <p className="text-red-500 text-xs mt-1">{validationErrors.companyName}</p>}
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Business Type *</label>
@@ -432,34 +528,39 @@ export default function DealersPage() {
             <input
               type="text"
               value={formData.gstNumber}
-              onChange={(e) => setFormData({ ...formData, gstNumber: e.target.value.toUpperCase() })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, gstNumber: formatGST(e.target.value) }); setValidationErrors({...validationErrors, gstNumber: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.gstNumber ? 'border-red-500' : ''}`}
               placeholder="e.g., 22AAAAA0000A1Z5"
               maxLength={15}
             />
+            {validationErrors.gstNumber && <p className="text-red-500 text-xs mt-1">{validationErrors.gstNumber}</p>}
+            <p className="text-text-muted text-xs mt-1">Format: 22AAAAA0000A1Z5</p>
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">PAN Number</label>
             <input
               type="text"
               value={formData.panNumber}
-              onChange={(e) => setFormData({ ...formData, panNumber: e.target.value.toUpperCase() })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, panNumber: formatPAN(e.target.value) }); setValidationErrors({...validationErrors, panNumber: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.panNumber ? 'border-red-500' : ''}`}
               placeholder="e.g., ABCDE1234F"
               maxLength={10}
             />
+            {validationErrors.panNumber && <p className="text-red-500 text-xs mt-1">{validationErrors.panNumber}</p>}
+            <p className="text-text-muted text-xs mt-1">Format: ABCDE1234F</p>
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Establishment Year</label>
             <input
               type="number"
               value={formData.establishmentYear}
-              onChange={(e) => setFormData({ ...formData, establishmentYear: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, establishmentYear: e.target.value }); setValidationErrors({...validationErrors, establishmentYear: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.establishmentYear ? 'border-red-500' : ''}`}
               placeholder="e.g., 2010"
               min="1900"
               max={new Date().getFullYear()}
             />
+            {validationErrors.establishmentYear && <p className="text-red-500 text-xs mt-1">{validationErrors.establishmentYear}</p>}
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Status</label>
@@ -526,11 +627,13 @@ export default function DealersPage() {
             <input
               type="text"
               value={formData.pinCode}
-              onChange={(e) => setFormData({ ...formData, pinCode: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, pinCode: formatPincode(e.target.value) }); setValidationErrors({...validationErrors, pinCode: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.pinCode ? 'border-red-500' : ''}`}
               placeholder="e.g., 400001"
-              maxLength={10}
+              maxLength={6}
             />
+            {validationErrors.pinCode && <p className="text-red-500 text-xs mt-1">{validationErrors.pinCode}</p>}
+            <p className="text-text-muted text-xs mt-1">6 digits only</p>
           </div>
           <div className="md:col-span-2">
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Full Address</label>
@@ -569,40 +672,48 @@ export default function DealersPage() {
             <input
               type="tel"
               value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              className="input w-full px-4 py-2.5"
-              placeholder="+91 22 12345678"
+              onChange={(e) => { setFormData({ ...formData, phone: formatPhone(e.target.value) }); setValidationErrors({...validationErrors, phone: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.phone ? 'border-red-500' : ''}`}
+              placeholder="e.g., 9876543210"
+              maxLength={10}
             />
+            {validationErrors.phone && <p className="text-red-500 text-xs mt-1">{validationErrors.phone}</p>}
+            <p className="text-text-muted text-xs mt-1">10 digits only</p>
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Mobile</label>
             <input
               type="tel"
               value={formData.mobile}
-              onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
-              className="input w-full px-4 py-2.5"
-              placeholder="+91 98765 43210"
+              onChange={(e) => { setFormData({ ...formData, mobile: formatPhone(e.target.value) }); setValidationErrors({...validationErrors, mobile: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.mobile ? 'border-red-500' : ''}`}
+              placeholder="e.g., 9876543210"
+              maxLength={10}
             />
+            {validationErrors.mobile && <p className="text-red-500 text-xs mt-1">{validationErrors.mobile}</p>}
+            <p className="text-text-muted text-xs mt-1">10 digits only</p>
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Email</label>
             <input
               type="email"
               value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setValidationErrors({...validationErrors, email: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.email ? 'border-red-500' : ''}`}
               placeholder="company@example.com"
             />
+            {validationErrors.email && <p className="text-red-500 text-xs mt-1">{validationErrors.email}</p>}
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Website</label>
             <input
               type="url"
               value={formData.website}
-              onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, website: e.target.value }); setValidationErrors({...validationErrors, website: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.website ? 'border-red-500' : ''}`}
               placeholder="https://www.example.com"
             />
+            {validationErrors.website && <p className="text-red-500 text-xs mt-1">{validationErrors.website}</p>}
           </div>
         </div>
       </div>
@@ -641,20 +752,24 @@ export default function DealersPage() {
             <input
               type="tel"
               value={formData.contactPersonPhone}
-              onChange={(e) => setFormData({ ...formData, contactPersonPhone: e.target.value })}
-              className="input w-full px-4 py-2.5"
-              placeholder="+91 98765 43210"
+              onChange={(e) => { setFormData({ ...formData, contactPersonPhone: formatPhone(e.target.value) }); setValidationErrors({...validationErrors, contactPersonPhone: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.contactPersonPhone ? 'border-red-500' : ''}`}
+              placeholder="e.g., 9876543210"
+              maxLength={10}
             />
+            {validationErrors.contactPersonPhone && <p className="text-red-500 text-xs mt-1">{validationErrors.contactPersonPhone}</p>}
+            <p className="text-text-muted text-xs mt-1">10 digits only</p>
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Email</label>
             <input
               type="email"
               value={formData.contactPersonEmail}
-              onChange={(e) => setFormData({ ...formData, contactPersonEmail: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, contactPersonEmail: e.target.value }); setValidationErrors({...validationErrors, contactPersonEmail: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.contactPersonEmail ? 'border-red-500' : ''}`}
               placeholder="person@example.com"
             />
+            {validationErrors.contactPersonEmail && <p className="text-red-500 text-xs mt-1">{validationErrors.contactPersonEmail}</p>}
           </div>
         </div>
       </div>
@@ -810,21 +925,26 @@ export default function DealersPage() {
             <input
               type="text"
               value={formData.bankAccountNumber}
-              onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, bankAccountNumber: formatBankAccount(e.target.value) }); setValidationErrors({...validationErrors, bankAccountNumber: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.bankAccountNumber ? 'border-red-500' : ''}`}
               placeholder="Enter account number"
+              maxLength={18}
             />
+            {validationErrors.bankAccountNumber && <p className="text-red-500 text-xs mt-1">{validationErrors.bankAccountNumber}</p>}
+            <p className="text-text-muted text-xs mt-1">9-18 digits</p>
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">IFSC Code</label>
             <input
               type="text"
               value={formData.bankIFSC}
-              onChange={(e) => setFormData({ ...formData, bankIFSC: e.target.value.toUpperCase() })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, bankIFSC: formatIFSC(e.target.value) }); setValidationErrors({...validationErrors, bankIFSC: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.bankIFSC ? 'border-red-500' : ''}`}
               placeholder="e.g., HDFC0001234"
               maxLength={11}
             />
+            {validationErrors.bankIFSC && <p className="text-red-500 text-xs mt-1">{validationErrors.bankIFSC}</p>}
+            <p className="text-text-muted text-xs mt-1">Format: ABCD0123456</p>
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Payment Terms</label>
@@ -1006,7 +1126,7 @@ export default function DealersPage() {
           <table className="w-full min-w-[1200px]">
             <thead className="table-header">
               <tr>
-                <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">ID</th>
+                <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">S.No</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">Company</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">Type</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">Location</th>
@@ -1054,8 +1174,8 @@ export default function DealersPage() {
                     style={{ animationDelay: `${index * 30}ms` }}
                   >
                     <td className="px-3 py-4">
-                      <span className="inline-flex items-center px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-medium">
-                        {dealer.Dealer_ID}
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 text-sm font-bold">
+                        {index + 1}
                       </span>
                     </td>
                     <td className="px-3 py-4">
@@ -1130,6 +1250,12 @@ export default function DealersPage() {
                     <td className="px-3 py-4 sticky right-0 bg-white">
                       <div className="flex items-center justify-end gap-2">
                         <button
+                          onClick={() => openViewModal(dealer)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-500 hover:bg-gray-600 text-white transition-colors"
+                        >
+                          View
+                        </button>
+                        <button
                           onClick={() => openEditModal(dealer)}
                           className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors"
                         >
@@ -1203,6 +1329,231 @@ export default function DealersPage() {
               </button>
             </div>
             {renderForm(handleEditDealer, true)}
+          </div>
+        </div>
+      )}
+
+      {/* View Modal */}
+      {showViewModal && viewingDealer && (
+        <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4 animate-fadeIn" onClick={() => setShowViewModal(false)}>
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-text-dark">{viewingDealer.Company_Name}</h2>
+                  <div className="flex items-center gap-2">
+                    <p className="text-text-muted text-sm">{viewingDealer.Dealer_ID}</p>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getTypeColor(viewingDealer.Business_Type)}`}>
+                      {viewingDealer.Business_Type}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-text-muted hover:text-text-dark transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Company Information */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3">Company Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">GST Number</p>
+                    <p className="text-sm font-medium text-text-dark font-mono">{viewingDealer.GST_Number || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">PAN Number</p>
+                    <p className="text-sm font-medium text-text-dark font-mono">{viewingDealer.PAN_Number || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Established</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Establishment_Year || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Status</p>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(viewingDealer.Status)}`}>
+                      {viewingDealer.Status || 'Active'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Location */}
+              <div className="bg-green-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3">Location</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">City</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.City || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">State</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.State || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Country</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Country || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">PIN Code</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.PIN_Code || '-'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-text-muted mb-1">Address</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Address || '-'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-text-muted mb-1">Territory Covered</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Territory_Covered || '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Information */}
+              <div className="bg-blue-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3">Contact Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Phone</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Phone || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Mobile</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Mobile || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Email</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Email || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Website</p>
+                    {viewingDealer.Website ? (
+                      <a href={viewingDealer.Website.startsWith('http') ? viewingDealer.Website : `https://${viewingDealer.Website}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-maroon hover:underline">
+                        {viewingDealer.Website}
+                      </a>
+                    ) : <p className="text-sm font-medium text-text-dark">-</p>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Person */}
+              {viewingDealer.Contact_Person_Name && (
+                <div className="bg-orange-50 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-text-dark mb-3">Contact Person</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Name</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingDealer.Contact_Person_Name}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Designation</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingDealer.Contact_Person_Designation || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Phone</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingDealer.Contact_Person_Phone || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Email</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingDealer.Contact_Person_Email || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Products & Prices */}
+              <div className="bg-purple-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3">Products & Prices</h3>
+                {viewingDealer.productsOffered && viewingDealer.productsOffered.length > 0 && viewingDealer.productsOffered.some(p => p.productType) ? (
+                  <div className="space-y-2">
+                    {viewingDealer.productsOffered.filter(p => p.productType).map((product, i) => (
+                      <div key={i} className="flex items-center justify-between bg-white rounded-lg p-3">
+                        <div>
+                          <p className="text-xs text-text-muted mb-0.5">Product Type</p>
+                          <span className="text-sm font-medium text-text-dark">{product.productType}</span>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-text-muted mb-0.5">Price</p>
+                          <span className="text-sm font-bold text-purple-600">₹{product.price?.toLocaleString('en-IN') || '0'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-text-muted">No products listed</p>
+                )}
+              </div>
+
+              {/* Business Details */}
+              <div className="bg-indigo-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3">Business Details</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Annual Turnover</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Annual_Turnover || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Employees</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Employee_Count || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Warehouse Area</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Warehouse_Area || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Fleet Size</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Fleet_Size || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Credit Limit</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Credit_Limit || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Rating</p>
+                    <div className="flex items-center gap-1">
+                      <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                      </svg>
+                      <span className="text-sm font-medium">{viewingDealer.Rating || 0}/5</span>
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-text-muted mb-1">Brands Handled</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingDealer.Brands_Handled || '-'}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6 pt-4 border-t border-gray-200">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-dark py-3 rounded-xl font-medium transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  openEditModal(viewingDealer);
+                }}
+                className="flex-1 btn-primary py-3 rounded-xl font-medium"
+              >
+                Edit Dealer
+              </button>
+            </div>
           </div>
         </div>
       )}

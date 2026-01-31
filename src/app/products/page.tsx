@@ -26,7 +26,9 @@ export default function ProductsPage() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     Product_Name: '',
@@ -166,6 +168,11 @@ export default function ProductsPage() {
     setShowEditModal(true);
   };
 
+  const openViewModal = (product: Product) => {
+    setViewingProduct(product);
+    setShowViewModal(true);
+  };
+
   const handleDeleteProduct = async (id: number) => {
     if (!confirm('Are you sure you want to delete this product?')) return;
 
@@ -266,7 +273,7 @@ export default function ProductsPage() {
 
       {/* Results Count */}
       <div className="flex items-center justify-between mb-4">
-        <p className="text-text-muted text-sm">
+        <p className="text-gray-600 text-sm font-medium">
           {isLoadingData ? 'Loading...' : `${filteredProducts.length} product${filteredProducts.length !== 1 ? 's' : ''} found`}
         </p>
       </div>
@@ -277,7 +284,7 @@ export default function ProductsPage() {
           <table className="w-full">
             <thead className="table-header">
               <tr>
-                <th className="px-5 py-4 text-left text-cream font-semibold text-sm">ID</th>
+                <th className="px-5 py-4 text-left text-cream font-semibold text-sm">S.No</th>
                 <th className="px-5 py-4 text-left text-cream font-semibold text-sm">Product Name</th>
                 <th className="px-5 py-4 text-left text-cream font-semibold text-sm">Type</th>
                 <th className="px-5 py-4 text-left text-cream font-semibold text-sm">Unit</th>
@@ -303,7 +310,7 @@ export default function ProductsPage() {
                     <div className="empty-state">
                       <div className="empty-state-icon">📦</div>
                       <h3 className="text-lg font-medium text-text-dark mb-1">No products found</h3>
-                      <p className="text-text-muted">
+                      <p className="text-gray-500">
                         {(filterType !== 'all' || filterUnit !== 'all') ? 'Try adjusting your filters' : 'Add your first product to get started'}
                       </p>
                     </div>
@@ -317,20 +324,40 @@ export default function ProductsPage() {
                     style={{ animationDelay: `${index * 30}ms` }}
                   >
                     <td className="px-5 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-maroon/10 text-maroon text-xs font-medium">
-                        {product.Product_ID}
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-maroon/10 text-maroon text-sm font-bold">
+                        {index + 1}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-text-dark font-medium">{product.Product_Name}</td>
                     <td className="px-5 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 text-xs font-semibold">
                         {product.Sub_Type}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-text-muted">{product.Unit}</td>
-                    <td className="px-5 py-4 text-text-muted text-sm max-w-[200px] truncate">{product.Specifications || '-'}</td>
+                    <td className="px-5 py-4">
+                      {product.Unit ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-purple-100 text-purple-800 text-xs font-semibold">
+                          {product.Unit}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-sm max-w-[200px]" title={product.Specifications || ''}>
+                      {product.Specifications ? (
+                        <span className="text-gray-700 font-medium">{product.Specifications}</span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => openViewModal(product)}
+                          className="px-3.5 py-2 rounded-lg text-sm font-medium bg-gray-500 hover:bg-gray-600 text-white transition-colors"
+                        >
+                          View
+                        </button>
                         {/* Both admin and employee can edit */}
                         <button
                           onClick={() => openEditModal(product)}
@@ -364,7 +391,7 @@ export default function ProductsPage() {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-xl font-bold text-text-dark">Add New Product</h2>
-                <p className="text-text-muted text-sm mt-1">Fill in the product details below</p>
+                <p className="text-gray-500 text-sm mt-1">Fill in the product details below</p>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
@@ -424,7 +451,7 @@ export default function ProductsPage() {
                   placeholder="e.g., Material: ABS Plastic, Weight: 350g, Color: Yellow, Certification: IS 2925"
                   required
                 />
-                <p className="text-text-muted text-xs mt-1">Enter product specifications like material, dimensions, certifications, etc.</p>
+                <p className="text-gray-500 text-xs mt-1">Enter product specifications like material, dimensions, certifications, etc.</p>
               </div>
               <div className="flex gap-3 pt-2">
                 <button
@@ -466,7 +493,7 @@ export default function ProductsPage() {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-xl font-bold text-text-dark">Edit Product</h2>
-                <p className="text-text-muted text-sm mt-1">Update the product details</p>
+                <p className="text-gray-500 text-sm mt-1">Update the product details</p>
               </div>
               <button
                 onClick={() => {
@@ -530,7 +557,7 @@ export default function ProductsPage() {
                   placeholder="e.g., Material: ABS Plastic, Weight: 350g, Color: Yellow, Certification: IS 2925"
                   required
                 />
-                <p className="text-text-muted text-xs mt-1">Enter product specifications like material, dimensions, certifications, etc.</p>
+                <p className="text-gray-500 text-xs mt-1">Enter product specifications like material, dimensions, certifications, etc.</p>
               </div>
               <div className="flex gap-3 pt-2">
                 <button
@@ -560,6 +587,90 @@ export default function ProductsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Modal */}
+      {showViewModal && viewingProduct && (
+        <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4 animate-fadeIn" onClick={() => setShowViewModal(false)}>
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-text-dark">Product Details</h2>
+                  <p className="text-gray-500 text-sm">{viewingProduct.Product_ID}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-text-muted hover:text-text-dark transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Basic Information
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Product Name</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingProduct.Product_Name || '-'}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Product Type</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingProduct.Sub_Type || '-'}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Unit</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingProduct.Unit || '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Specifications
+                </h3>
+                <div className="bg-white rounded-lg p-3 border border-gray-100">
+                  <p className="text-sm text-text-dark whitespace-pre-wrap">{viewingProduct.Specifications || 'No specifications available'}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6 pt-4 border-t border-gray-200">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-dark py-3 rounded-xl font-medium transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  openEditModal(viewingProduct);
+                }}
+                className="flex-1 btn-primary py-3 rounded-xl font-medium"
+              >
+                Edit Product
+              </button>
+            </div>
           </div>
         </div>
       )}

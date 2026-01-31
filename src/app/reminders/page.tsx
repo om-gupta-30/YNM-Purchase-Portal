@@ -234,15 +234,6 @@ export default function RemindersPage() {
           <option value="this_week">📅 This Week</option>
         </select>
         <div className="flex-1"></div>
-        <button
-          onClick={() => router.push('/orders-list')}
-          className="btn-primary px-6 py-3 rounded-xl font-medium flex items-center justify-center gap-2"
-        >
-          <span>View All Orders</span>
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-          </svg>
-        </button>
       </div>
 
       {/* Reminders List */}

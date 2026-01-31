@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useAuthFetch } from '@/hooks/useAuth';
 import Header from '@/components/layout/Header';
+import { validators, formatPhone, formatGST } from '@/utils/validation';
 
 interface ProductOffered {
   productType: string;
@@ -47,7 +48,9 @@ export default function ManufacturersPage() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingManufacturer, setEditingManufacturer] = useState<Manufacturer | null>(null);
+  const [viewingManufacturer, setViewingManufacturer] = useState<Manufacturer | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -65,6 +68,8 @@ export default function ManufacturersPage() {
     website: '',
     productsOffered: [{ productType: '', price: 0 }]
   });
+
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -135,10 +140,64 @@ export default function ManufacturersPage() {
     }
   }, [success, error]);
 
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    
+    // Required fields
+    if (!formData.name.trim()) errors.name = 'Manufacturer name is required';
+    if (!formData.location.trim()) errors.location = 'Location is required';
+    if (!formData.contact.trim()) errors.contact = 'Phone number is required';
+    
+    // Phone validation (10 digits)
+    if (formData.contact) {
+      const phoneResult = validators.phone(formData.contact);
+      if (!phoneResult.valid) errors.contact = phoneResult.message;
+    }
+    
+    // Email validation
+    if (formData.email) {
+      const emailResult = validators.email(formData.email);
+      if (!emailResult.valid) errors.email = emailResult.message;
+    }
+    
+    // GST validation
+    if (formData.gstNumber) {
+      const gstResult = validators.gst(formData.gstNumber);
+      if (!gstResult.valid) errors.gstNumber = gstResult.message;
+    }
+    
+    // Website validation
+    if (formData.website) {
+      const websiteResult = validators.website(formData.website);
+      if (!websiteResult.valid) errors.website = websiteResult.message;
+    }
+    
+    // Contact person phone validation
+    if (formData.contactPersonPhone) {
+      const cpPhoneResult = validators.phone(formData.contactPersonPhone);
+      if (!cpPhoneResult.valid) errors.contactPersonPhone = cpPhoneResult.message;
+    }
+    
+    // Contact person email validation
+    if (formData.contactPersonEmail) {
+      const cpEmailResult = validators.email(formData.contactPersonEmail);
+      if (!cpEmailResult.valid) errors.contactPersonEmail = cpEmailResult.message;
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleAddManufacturer = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    
+    if (!validateForm()) {
+      setError('Please fix the validation errors before submitting');
+      return;
+    }
+    
     setIsSubmitting(true);
 
     try {
@@ -165,6 +224,7 @@ export default function ManufacturersPage() {
           website: '',
           productsOffered: [{ productType: '', price: 0 }]
         });
+        setValidationErrors({});
         fetchData();
       } else {
         setError(data.message || 'Failed to add manufacturer');
@@ -182,6 +242,12 @@ export default function ManufacturersPage() {
     
     setError('');
     setSuccess('');
+    
+    if (!validateForm()) {
+      setError('Please fix the validation errors before submitting');
+      return;
+    }
+    
     setIsSubmitting(true);
 
     try {
@@ -209,6 +275,7 @@ export default function ManufacturersPage() {
           website: '',
           productsOffered: [{ productType: '', price: 0 }]
         });
+        setValidationErrors({});
         fetchData();
       } else {
         setError(data.message || 'Failed to update manufacturer');
@@ -238,6 +305,11 @@ export default function ManufacturersPage() {
         : [{ productType: '', price: 0 }]
     });
     setShowEditModal(true);
+  };
+
+  const openViewModal = (manufacturer: Manufacturer) => {
+    setViewingManufacturer(manufacturer);
+    setShowViewModal(true);
   };
 
   const handleDeleteManufacturer = async (id: number) => {
@@ -371,7 +443,7 @@ export default function ManufacturersPage() {
           <table className="w-full min-w-[1200px]">
             <thead className="table-header">
               <tr>
-                <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">ID</th>
+                <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">S.No</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">Company Name</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">Location</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">GST Number</th>
@@ -418,8 +490,8 @@ export default function ManufacturersPage() {
                   >
                     {/* ID */}
                     <td className="px-3 py-4">
-                      <span className="inline-flex items-center px-2 py-1 rounded-lg bg-purple-50 text-purple-700 text-xs font-medium">
-                        {manufacturer.Manufacturer_ID}
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-purple-50 text-purple-700 text-sm font-bold">
+                        {index + 1}
                       </span>
                     </td>
                     
@@ -432,41 +504,49 @@ export default function ManufacturersPage() {
                     
                     {/* Location */}
                     <td className="px-3 py-4">
-                      <div className="flex items-center gap-1 text-text-muted text-sm">
-                        <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        <span>{manufacturer.Location}</span>
-                      </div>
+                      {manufacturer.Location ? (
+                        <div className="flex items-center gap-1.5 text-sm">
+                          <svg className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          <span className="text-text-dark font-medium">{manufacturer.Location}</span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-sm">-</span>
+                      )}
                     </td>
                     
                     {/* GST Number */}
                     <td className="px-3 py-4">
                       {manufacturer.GST_Number ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded bg-green-50 text-green-700 text-xs font-mono">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-mono font-semibold">
                           {manufacturer.GST_Number}
                         </span>
                       ) : (
-                        <span className="text-text-muted text-xs">-</span>
+                        <span className="text-gray-400 text-xs">-</span>
                       )}
                     </td>
                     
                     {/* Company Contact (Phone + Email) */}
                     <td className="px-3 py-4">
                       <div className="space-y-1">
-                        <div className="flex items-center gap-1 text-text-dark text-xs">
-                          <svg className="w-3 h-3 text-text-muted flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                          </svg>
-                          <span>{manufacturer.Contact_Number}</span>
-                        </div>
+                        {manufacturer.Contact_Number ? (
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <svg className="w-3 h-3 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                            </svg>
+                            <span className="text-text-dark font-medium">{manufacturer.Contact_Number}</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
                         {manufacturer.Email && (
-                          <div className="flex items-center gap-1 text-text-muted text-xs">
-                            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <svg className="w-3 h-3 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                             </svg>
-                            <span>{manufacturer.Email}</span>
+                            <span className="text-gray-700">{manufacturer.Email}</span>
                           </div>
                         )}
                       </div>
@@ -476,34 +556,34 @@ export default function ManufacturersPage() {
                     <td className="px-3 py-4">
                       {manufacturer.Contact_Person_Name ? (
                         <div className="space-y-1">
-                          <div className="flex items-center gap-1">
-                            <svg className="w-3 h-3 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="flex items-center gap-1.5">
+                            <svg className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                             </svg>
-                            <span className="text-text-dark text-xs font-medium">{manufacturer.Contact_Person_Name}</span>
+                            <span className="text-text-dark text-xs font-semibold">{manufacturer.Contact_Person_Name}</span>
                           </div>
                           {manufacturer.Contact_Person_Designation && (
-                            <div className="text-text-muted text-xs pl-4">{manufacturer.Contact_Person_Designation}</div>
+                            <div className="text-gray-600 text-xs pl-5 font-medium">{manufacturer.Contact_Person_Designation}</div>
                           )}
                           {manufacturer.Contact_Person_Phone && (
-                            <div className="flex items-center gap-1 text-text-muted text-xs">
-                              <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="flex items-center gap-1.5 text-xs pl-5">
+                              <svg className="w-3 h-3 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                               </svg>
-                              <span>{manufacturer.Contact_Person_Phone}</span>
+                              <span className="text-gray-700">{manufacturer.Contact_Person_Phone}</span>
                             </div>
                           )}
                           {manufacturer.Contact_Person_Email && (
-                            <div className="flex items-center gap-1 text-text-muted text-xs">
-                              <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="flex items-center gap-1.5 text-xs pl-5">
+                              <svg className="w-3 h-3 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                               </svg>
-                              <span>{manufacturer.Contact_Person_Email}</span>
+                              <span className="text-gray-700">{manufacturer.Contact_Person_Email}</span>
                             </div>
                           )}
                         </div>
                       ) : (
-                        <span className="text-text-muted text-xs">-</span>
+                        <span className="text-gray-400 text-xs">-</span>
                       )}
                     </td>
                     
@@ -513,16 +593,16 @@ export default function ManufacturersPage() {
                         {manufacturer.productsOffered && manufacturer.productsOffered.length > 0 ? (
                           manufacturer.productsOffered.map((product, i) => (
                             <div key={i} className="flex items-center gap-2">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs font-medium">
                                 {product.productType}
                               </span>
-                              <span className="text-green-600 text-xs font-semibold">
+                              <span className="text-green-700 text-xs font-bold">
                                 ₹{product.price.toLocaleString('en-IN')}
                               </span>
                             </div>
                           ))
                         ) : (
-                          <span className="text-text-muted text-xs">-</span>
+                          <span className="text-gray-400 text-xs">-</span>
                         )}
                       </div>
                     </td>
@@ -534,21 +614,27 @@ export default function ManufacturersPage() {
                           href={manufacturer.Website.startsWith('http') ? manufacturer.Website : `https://${manufacturer.Website}`} 
                           target="_blank" 
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-maroon hover:text-maroon-dark text-xs font-medium transition-colors"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-medium transition-colors"
                         >
-                          <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                           </svg>
                           <span>Visit Site</span>
                         </a>
                       ) : (
-                        <span className="text-text-muted text-xs">-</span>
+                        <span className="text-gray-400 text-xs">-</span>
                       )}
                     </td>
                     
                     {/* Actions - Sticky */}
                     <td className="px-3 py-4 sticky right-0 bg-white">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => openViewModal(manufacturer)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-500 hover:bg-gray-600 text-white transition-colors"
+                        >
+                          View
+                        </button>
                         <button
                           onClick={() => openEditModal(manufacturer)}
                           className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors"
@@ -612,11 +698,12 @@ export default function ManufacturersPage() {
                     <input
                       type="text"
                       value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="input w-full px-4 py-2.5"
+                      onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setValidationErrors({...validationErrors, name: ''}); }}
+                      className={`input w-full px-4 py-2.5 ${validationErrors.name ? 'border-red-500' : ''}`}
                       placeholder="e.g., ABC Industries Pvt. Ltd."
                       required
                     />
+                    {validationErrors.name && <p className="text-red-500 text-xs mt-1">{validationErrors.name}</p>}
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -625,22 +712,25 @@ export default function ManufacturersPage() {
                       <input
                         type="text"
                         value={formData.location}
-                        onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, location: e.target.value }); setValidationErrors({...validationErrors, location: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.location ? 'border-red-500' : ''}`}
                         placeholder="e.g., Mumbai, Maharashtra"
                         required
                       />
+                      {validationErrors.location && <p className="text-red-500 text-xs mt-1">{validationErrors.location}</p>}
                     </div>
                     <div>
                       <label className="block text-text-dark font-medium mb-1.5 text-sm">GST Number</label>
                       <input
                         type="text"
                         value={formData.gstNumber}
-                        onChange={(e) => setFormData({ ...formData, gstNumber: e.target.value.toUpperCase() })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, gstNumber: formatGST(e.target.value) }); setValidationErrors({...validationErrors, gstNumber: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.gstNumber ? 'border-red-500' : ''}`}
                         placeholder="e.g., 27AABCU9603R1ZM"
                         maxLength={15}
                       />
+                      {validationErrors.gstNumber && <p className="text-red-500 text-xs mt-1">{validationErrors.gstNumber}</p>}
+                      <p className="text-text-muted text-xs mt-1">Format: 22AAAAA0000A1Z5</p>
                     </div>
                   </div>
 
@@ -650,21 +740,25 @@ export default function ManufacturersPage() {
                       <input
                         type="tel"
                         value={formData.contact}
-                        onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, contact: formatPhone(e.target.value) }); setValidationErrors({...validationErrors, contact: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.contact ? 'border-red-500' : ''}`}
                         placeholder="e.g., 9876543210"
+                        maxLength={10}
                         required
                       />
+                      {validationErrors.contact && <p className="text-red-500 text-xs mt-1">{validationErrors.contact}</p>}
+                      <p className="text-text-muted text-xs mt-1">10 digits only</p>
                     </div>
                     <div>
                       <label className="block text-text-dark font-medium mb-1.5 text-sm">Company Email</label>
                       <input
                         type="email"
                         value={formData.email}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setValidationErrors({...validationErrors, email: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.email ? 'border-red-500' : ''}`}
                         placeholder="e.g., info@abcindustries.com"
                       />
+                      {validationErrors.email && <p className="text-red-500 text-xs mt-1">{validationErrors.email}</p>}
                     </div>
                   </div>
 
@@ -673,10 +767,11 @@ export default function ManufacturersPage() {
                     <input
                       type="url"
                       value={formData.website}
-                      onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                      className="input w-full px-4 py-2.5"
+                      onChange={(e) => { setFormData({ ...formData, website: e.target.value }); setValidationErrors({...validationErrors, website: ''}); }}
+                      className={`input w-full px-4 py-2.5 ${validationErrors.website ? 'border-red-500' : ''}`}
                       placeholder="e.g., https://www.abcindustries.com"
                     />
+                    {validationErrors.website && <p className="text-red-500 text-xs mt-1">{validationErrors.website}</p>}
                   </div>
                 </div>
               </div>
@@ -719,20 +814,23 @@ export default function ManufacturersPage() {
                       <input
                         type="tel"
                         value={formData.contactPersonPhone}
-                        onChange={(e) => setFormData({ ...formData, contactPersonPhone: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, contactPersonPhone: formatPhone(e.target.value) }); setValidationErrors({...validationErrors, contactPersonPhone: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.contactPersonPhone ? 'border-red-500' : ''}`}
                         placeholder="e.g., 9876543211"
+                        maxLength={10}
                       />
+                      {validationErrors.contactPersonPhone && <p className="text-red-500 text-xs mt-1">{validationErrors.contactPersonPhone}</p>}
                     </div>
                     <div>
                       <label className="block text-text-dark font-medium mb-1.5 text-sm">Contact Person Email</label>
                       <input
                         type="email"
                         value={formData.contactPersonEmail}
-                        onChange={(e) => setFormData({ ...formData, contactPersonEmail: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, contactPersonEmail: e.target.value }); setValidationErrors({...validationErrors, contactPersonEmail: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.contactPersonEmail ? 'border-red-500' : ''}`}
                         placeholder="e.g., rajesh@abcindustries.com"
                       />
+                      {validationErrors.contactPersonEmail && <p className="text-red-500 text-xs mt-1">{validationErrors.contactPersonEmail}</p>}
                     </div>
                   </div>
                 </div>
@@ -886,11 +984,12 @@ export default function ManufacturersPage() {
                     <input
                       type="text"
                       value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="input w-full px-4 py-2.5"
+                      onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setValidationErrors({...validationErrors, name: ''}); }}
+                      className={`input w-full px-4 py-2.5 ${validationErrors.name ? 'border-red-500' : ''}`}
                       placeholder="e.g., ABC Industries Pvt. Ltd."
                       required
                     />
+                    {validationErrors.name && <p className="text-red-500 text-xs mt-1">{validationErrors.name}</p>}
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -899,22 +998,25 @@ export default function ManufacturersPage() {
                       <input
                         type="text"
                         value={formData.location}
-                        onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, location: e.target.value }); setValidationErrors({...validationErrors, location: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.location ? 'border-red-500' : ''}`}
                         placeholder="e.g., Mumbai, Maharashtra"
                         required
                       />
+                      {validationErrors.location && <p className="text-red-500 text-xs mt-1">{validationErrors.location}</p>}
                     </div>
                     <div>
                       <label className="block text-text-dark font-medium mb-1.5 text-sm">GST Number</label>
                       <input
                         type="text"
                         value={formData.gstNumber}
-                        onChange={(e) => setFormData({ ...formData, gstNumber: e.target.value.toUpperCase() })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, gstNumber: formatGST(e.target.value) }); setValidationErrors({...validationErrors, gstNumber: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.gstNumber ? 'border-red-500' : ''}`}
                         placeholder="e.g., 27AABCU9603R1ZM"
                         maxLength={15}
                       />
+                      {validationErrors.gstNumber && <p className="text-red-500 text-xs mt-1">{validationErrors.gstNumber}</p>}
+                      <p className="text-text-muted text-xs mt-1">Format: 22AAAAA0000A1Z5</p>
                     </div>
                   </div>
 
@@ -924,21 +1026,25 @@ export default function ManufacturersPage() {
                       <input
                         type="tel"
                         value={formData.contact}
-                        onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, contact: formatPhone(e.target.value) }); setValidationErrors({...validationErrors, contact: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.contact ? 'border-red-500' : ''}`}
                         placeholder="e.g., 9876543210"
+                        maxLength={10}
                         required
                       />
+                      {validationErrors.contact && <p className="text-red-500 text-xs mt-1">{validationErrors.contact}</p>}
+                      <p className="text-text-muted text-xs mt-1">10 digits only</p>
                     </div>
                     <div>
                       <label className="block text-text-dark font-medium mb-1.5 text-sm">Company Email</label>
                       <input
                         type="email"
                         value={formData.email}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setValidationErrors({...validationErrors, email: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.email ? 'border-red-500' : ''}`}
                         placeholder="e.g., info@abcindustries.com"
                       />
+                      {validationErrors.email && <p className="text-red-500 text-xs mt-1">{validationErrors.email}</p>}
                     </div>
                   </div>
 
@@ -947,10 +1053,11 @@ export default function ManufacturersPage() {
                     <input
                       type="url"
                       value={formData.website}
-                      onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                      className="input w-full px-4 py-2.5"
+                      onChange={(e) => { setFormData({ ...formData, website: e.target.value }); setValidationErrors({...validationErrors, website: ''}); }}
+                      className={`input w-full px-4 py-2.5 ${validationErrors.website ? 'border-red-500' : ''}`}
                       placeholder="e.g., https://www.abcindustries.com"
                     />
+                    {validationErrors.website && <p className="text-red-500 text-xs mt-1">{validationErrors.website}</p>}
                   </div>
                 </div>
               </div>
@@ -993,20 +1100,23 @@ export default function ManufacturersPage() {
                       <input
                         type="tel"
                         value={formData.contactPersonPhone}
-                        onChange={(e) => setFormData({ ...formData, contactPersonPhone: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, contactPersonPhone: formatPhone(e.target.value) }); setValidationErrors({...validationErrors, contactPersonPhone: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.contactPersonPhone ? 'border-red-500' : ''}`}
                         placeholder="e.g., 9876543211"
+                        maxLength={10}
                       />
+                      {validationErrors.contactPersonPhone && <p className="text-red-500 text-xs mt-1">{validationErrors.contactPersonPhone}</p>}
                     </div>
                     <div>
                       <label className="block text-text-dark font-medium mb-1.5 text-sm">Contact Person Email</label>
                       <input
                         type="email"
                         value={formData.contactPersonEmail}
-                        onChange={(e) => setFormData({ ...formData, contactPersonEmail: e.target.value })}
-                        className="input w-full px-4 py-2.5"
+                        onChange={(e) => { setFormData({ ...formData, contactPersonEmail: e.target.value }); setValidationErrors({...validationErrors, contactPersonEmail: ''}); }}
+                        className={`input w-full px-4 py-2.5 ${validationErrors.contactPersonEmail ? 'border-red-500' : ''}`}
                         placeholder="e.g., rajesh@abcindustries.com"
                       />
+                      {validationErrors.contactPersonEmail && <p className="text-red-500 text-xs mt-1">{validationErrors.contactPersonEmail}</p>}
                     </div>
                   </div>
                 </div>
@@ -1117,6 +1227,145 @@ export default function ManufacturersPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Modal */}
+      {showViewModal && viewingManufacturer && (
+        <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4 animate-fadeIn" onClick={() => setShowViewModal(false)}>
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-text-dark">{viewingManufacturer.Manufacturer_Name}</h2>
+                  <p className="text-text-muted text-sm">{viewingManufacturer.Manufacturer_ID}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-text-muted hover:text-text-dark transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Company Information */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-maroon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  Company Information
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Location</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingManufacturer.Location || '-'}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">GST Number</p>
+                    <p className="text-sm font-medium text-text-dark font-mono">{viewingManufacturer.GST_Number || '-'}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Phone</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingManufacturer.Contact_Number || '-'}</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Email</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingManufacturer.Email || '-'}</p>
+                  </div>
+                  <div className="col-span-2 bg-white rounded-lg p-3 border border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Website</p>
+                    {viewingManufacturer.Website ? (
+                      <a href={viewingManufacturer.Website.startsWith('http') ? viewingManufacturer.Website : `https://${viewingManufacturer.Website}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-maroon hover:underline">
+                        {viewingManufacturer.Website}
+                      </a>
+                    ) : (
+                      <p className="text-sm font-medium text-text-dark">-</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Person */}
+              {viewingManufacturer.Contact_Person_Name && (
+                <div className="bg-blue-50 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-text-dark mb-3 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    Contact Person
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white/50 rounded-lg p-3 border border-blue-100">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Name</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingManufacturer.Contact_Person_Name}</p>
+                    </div>
+                    <div className="bg-white/50 rounded-lg p-3 border border-blue-100">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Designation</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingManufacturer.Contact_Person_Designation || '-'}</p>
+                    </div>
+                    <div className="bg-white/50 rounded-lg p-3 border border-blue-100">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Phone</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingManufacturer.Contact_Person_Phone || '-'}</p>
+                    </div>
+                    <div className="bg-white/50 rounded-lg p-3 border border-blue-100">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Email</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingManufacturer.Contact_Person_Email || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Products & Prices */}
+              <div className="bg-green-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                  Products & Prices
+                </h3>
+                {viewingManufacturer.productsOffered && viewingManufacturer.productsOffered.length > 0 ? (
+                  <div className="space-y-2">
+                    {viewingManufacturer.productsOffered.map((product, i) => (
+                      <div key={i} className="flex items-center justify-between bg-white rounded-lg p-3">
+                        <span className="text-sm font-medium text-text-dark">{product.productType}</span>
+                        <span className="text-sm font-bold text-green-600">₹{product.price.toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-text-muted">No products listed</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6 pt-4 border-t border-gray-200">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-dark py-3 rounded-xl font-medium transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  openEditModal(viewingManufacturer);
+                }}
+                className="flex-1 btn-primary py-3 rounded-xl font-medium"
+              >
+                Edit Manufacturer
+              </button>
+            </div>
           </div>
         </div>
       )}

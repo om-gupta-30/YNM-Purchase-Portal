@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useAuthFetch } from '@/hooks/useAuth';
 import Header from '@/components/layout/Header';
+import { validators, formatPhone, formatIFSC, formatBankAccount } from '@/utils/validation';
 
 interface ProductOffered {
   productType: string;
@@ -54,7 +55,9 @@ export default function ImportersPage() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingImporter, setEditingImporter] = useState<Importer | null>(null);
+  const [viewingImporter, setViewingImporter] = useState<Importer | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -83,6 +86,63 @@ export default function ImportersPage() {
     rating: 0,
     status: 'active'
   });
+
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    
+    // Required fields
+    if (!formData.companyName.trim()) errors.companyName = 'Company name is required';
+    if (!formData.country.trim()) errors.country = 'Country is required';
+    
+    // Phone validation
+    if (formData.phone) {
+      const phoneResult = validators.phoneWithCode(formData.phone);
+      if (!phoneResult.valid) errors.phone = phoneResult.message;
+    }
+    if (formData.contactPersonPhone) {
+      const cpPhoneResult = validators.phoneWithCode(formData.contactPersonPhone);
+      if (!cpPhoneResult.valid) errors.contactPersonPhone = cpPhoneResult.message;
+    }
+    
+    // Email validation
+    if (formData.email) {
+      const emailResult = validators.email(formData.email);
+      if (!emailResult.valid) errors.email = emailResult.message;
+    }
+    if (formData.contactPersonEmail) {
+      const cpEmailResult = validators.email(formData.contactPersonEmail);
+      if (!cpEmailResult.valid) errors.contactPersonEmail = cpEmailResult.message;
+    }
+    
+    // IEC Code validation
+    if (formData.iecCode) {
+      const iecResult = validators.iec(formData.iecCode);
+      if (!iecResult.valid) errors.iecCode = iecResult.message;
+    }
+    
+    // IFSC validation
+    if (formData.bankIFSC) {
+      const ifscResult = validators.ifsc(formData.bankIFSC);
+      if (!ifscResult.valid) errors.bankIFSC = ifscResult.message;
+    }
+    
+    // Bank account validation
+    if (formData.bankAccountNumber) {
+      const bankResult = validators.bankAccount(formData.bankAccountNumber);
+      if (!bankResult.valid) errors.bankAccountNumber = bankResult.message;
+    }
+    
+    // Website validation
+    if (formData.website) {
+      const websiteResult = validators.website(formData.website);
+      if (!websiteResult.valid) errors.website = websiteResult.message;
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -180,6 +240,12 @@ export default function ImportersPage() {
     e.preventDefault();
     setError('');
     setSuccess('');
+    
+    if (!validateForm()) {
+      setError('Please fix the validation errors before submitting');
+      return;
+    }
+    
     setIsSubmitting(true);
 
     try {
@@ -198,6 +264,7 @@ export default function ImportersPage() {
       setSuccess('Importer added successfully!');
       setShowAddModal(false);
       resetForm();
+      setValidationErrors({});
       fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add importer');
@@ -212,6 +279,12 @@ export default function ImportersPage() {
 
     setError('');
     setSuccess('');
+    
+    if (!validateForm()) {
+      setError('Please fix the validation errors before submitting');
+      return;
+    }
+    
     setIsSubmitting(true);
 
     try {
@@ -231,6 +304,7 @@ export default function ImportersPage() {
       setShowEditModal(false);
       setEditingImporter(null);
       resetForm();
+      setValidationErrors({});
       fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update importer');
@@ -287,6 +361,11 @@ export default function ImportersPage() {
       status: importer.Status || 'active'
     });
     setShowEditModal(true);
+  };
+
+  const openViewModal = (importer: Importer) => {
+    setViewingImporter(importer);
+    setShowViewModal(true);
   };
 
   // Product field management
@@ -628,20 +707,25 @@ export default function ImportersPage() {
             <input
               type="text"
               value={formData.bankAccountNumber}
-              onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, bankAccountNumber: formatBankAccount(e.target.value) }); setValidationErrors({...validationErrors, bankAccountNumber: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.bankAccountNumber ? 'border-red-500' : ''}`}
               placeholder="Account number"
+              maxLength={18}
             />
+            {validationErrors.bankAccountNumber && <p className="text-red-500 text-xs mt-1">{validationErrors.bankAccountNumber}</p>}
+            <p className="text-text-muted text-xs mt-1">9-18 digits</p>
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">IFSC / SWIFT Code</label>
             <input
               type="text"
               value={formData.bankIFSC}
-              onChange={(e) => setFormData({ ...formData, bankIFSC: e.target.value })}
-              className="input w-full px-4 py-2.5"
+              onChange={(e) => { setFormData({ ...formData, bankIFSC: formatIFSC(e.target.value) }); setValidationErrors({...validationErrors, bankIFSC: ''}); }}
+              className={`input w-full px-4 py-2.5 ${validationErrors.bankIFSC ? 'border-red-500' : ''}`}
               placeholder="IFSC or SWIFT code"
+              maxLength={11}
             />
+            {validationErrors.bankIFSC && <p className="text-red-500 text-xs mt-1">{validationErrors.bankIFSC}</p>}
           </div>
           <div>
             <label className="block text-text-dark font-medium mb-1.5 text-sm">Payment Terms</label>
@@ -780,7 +864,7 @@ export default function ImportersPage() {
           <table className="w-full min-w-[1200px]">
             <thead className="table-header">
               <tr>
-                <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">ID</th>
+                <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">S.No</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">Company</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">Location</th>
                 <th className="px-3 py-4 text-left text-cream font-semibold text-xs whitespace-nowrap">Contact</th>
@@ -826,8 +910,8 @@ export default function ImportersPage() {
                     style={{ animationDelay: `${index * 30}ms` }}
                   >
                     <td className="px-3 py-4">
-                      <span className="inline-flex items-center px-2 py-1 rounded-lg bg-teal-50 text-teal-700 text-xs font-medium">
-                        {importer.Importer_ID}
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-teal-50 text-teal-700 text-sm font-bold">
+                        {index + 1}
                       </span>
                     </td>
                     
@@ -928,6 +1012,12 @@ export default function ImportersPage() {
                     <td className="px-3 py-4 sticky right-0 bg-white">
                       <div className="flex items-center justify-end gap-2">
                         <button
+                          onClick={() => openViewModal(importer)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-500 hover:bg-gray-600 text-white transition-colors"
+                        >
+                          View
+                        </button>
+                        <button
                           onClick={() => openEditModal(importer)}
                           className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors"
                         >
@@ -1001,6 +1091,199 @@ export default function ImportersPage() {
               </button>
             </div>
             {renderForm(handleEditImporter, true)}
+          </div>
+        </div>
+      )}
+
+      {/* View Modal */}
+      {showViewModal && viewingImporter && (
+        <div className="fixed inset-0 modal-backdrop flex items-center justify-center z-50 p-4 animate-fadeIn" onClick={() => setShowViewModal(false)}>
+          <div className="bg-white rounded-2xl p-6 md:p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center text-white">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-text-dark">{viewingImporter.Company_Name}</h2>
+                  <p className="text-text-muted text-sm">{viewingImporter.Importer_ID}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-text-muted hover:text-text-dark transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Company Information */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3">Company Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Country</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingImporter.Country}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">City</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingImporter.City || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Business Type</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingImporter.Business_Type || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">IEC Code</p>
+                    <p className="text-sm font-medium text-text-dark font-mono">{viewingImporter.IEC_Code || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Status</p>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${viewingImporter.Status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
+                      {viewingImporter.Status || 'Active'}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Rating</p>
+                    <div className="flex items-center gap-1">
+                      <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                      </svg>
+                      <span className="text-sm font-medium">{viewingImporter.Rating || 0}/5</span>
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-text-muted mb-1">Address</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingImporter.Address || '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Information */}
+              <div className="bg-blue-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3">Contact Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Phone</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingImporter.Phone || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted mb-1">Email</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingImporter.Email || '-'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-text-muted mb-1">Website</p>
+                    {viewingImporter.Website ? (
+                      <a href={viewingImporter.Website.startsWith('http') ? viewingImporter.Website : `https://${viewingImporter.Website}`} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-maroon hover:underline">
+                        {viewingImporter.Website}
+                      </a>
+                    ) : <p className="text-sm font-medium text-text-dark">-</p>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Contact Person */}
+              {viewingImporter.Contact_Person_Name && (
+                <div className="bg-purple-50 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-text-dark mb-3">Contact Person</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Name</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingImporter.Contact_Person_Name}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Designation</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingImporter.Contact_Person_Designation || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Phone</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingImporter.Contact_Person_Phone || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Email</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingImporter.Contact_Person_Email || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Products & Prices */}
+              <div className="bg-green-50 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-dark mb-3">Products Imported</h3>
+                {viewingImporter.productsOffered && viewingImporter.productsOffered.length > 0 && viewingImporter.productsOffered.some(p => p.productType) ? (
+                  <div className="space-y-2">
+                    {viewingImporter.productsOffered.filter(p => p.productType).map((product, i) => (
+                      <div key={i} className="flex items-center justify-between bg-white rounded-lg p-3">
+                        <div>
+                          <p className="text-xs text-text-muted mb-0.5">Product Type</p>
+                          <span className="text-sm font-medium text-text-dark">{product.productType}</span>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-text-muted mb-0.5">Price</p>
+                          <span className="text-sm font-bold text-green-600">₹{product.price?.toLocaleString('en-IN') || '0'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-text-muted">No products listed</p>
+                )}
+                {viewingImporter.Countries_Importing_From && (
+                  <div className="mt-3 pt-3 border-t border-green-200">
+                    <p className="text-xs text-text-muted mb-1">Countries Importing From</p>
+                    <p className="text-sm font-medium text-text-dark">{viewingImporter.Countries_Importing_From}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Bank & Payment Details */}
+              {(viewingImporter.Bank_Name || viewingImporter.Payment_Terms) && (
+                <div className="bg-amber-50 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-text-dark mb-3">Bank & Payment Details</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Bank Name</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingImporter.Bank_Name || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Account Number</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingImporter.Bank_Account_Number || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">IFSC/SWIFT Code</p>
+                      <p className="text-sm font-medium text-text-dark font-mono">{viewingImporter.Bank_IFSC || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Payment Terms</p>
+                      <p className="text-sm font-medium text-text-dark">{viewingImporter.Payment_Terms || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6 pt-4 border-t border-gray-200">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-dark py-3 rounded-xl font-medium transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  openEditModal(viewingImporter);
+                }}
+                className="flex-1 btn-primary py-3 rounded-xl font-medium"
+              >
+                Edit Importer
+              </button>
+            </div>
           </div>
         </div>
       )}

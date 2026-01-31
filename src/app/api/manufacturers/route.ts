@@ -4,7 +4,8 @@ import { getUserFromRequest, authErrors } from '@/lib/auth';
 import { fuzzyMatch, validateName, validatePhone, validateLocation, validateNumeric } from '@/lib/utils';
 
 interface ProductOffered {
-  productType: string;
+  productType?: string;
+  product_type?: string;
   price: number;
 }
 
@@ -22,31 +23,43 @@ export async function GET(request: NextRequest) {
       .order('name', { ascending: true });
 
     if (error) {
+      console.error('Manufacturers fetch error:', error);
       return Response.json({ success: false, message: error.message }, { status: 500 });
     }
 
-    // Transform to frontend format
+    // Log first manufacturer to help debug
+    if (manufacturers && manufacturers.length > 0) {
+      console.log('First manufacturer raw data:', JSON.stringify(manufacturers[0]));
+    }
+
+    // Transform to frontend format - handle both old and new column names
     const transformedManufacturers = (manufacturers || []).map(manufacturer => {
-      const productsOffered = (manufacturer.products_offered || []).map((p: ProductOffered) => p.productType).join(', ');
-      const productPrices = (manufacturer.products_offered || []).map((p: ProductOffered) => `${p.productType}: ${p.price}`).join(', ');
+      // Get products_offered with fallbacks for different formats
+      const productsData = manufacturer.products_offered || manufacturer.productsOffered || [];
+      const productsOffered = Array.isArray(productsData) 
+        ? productsData.map((p: ProductOffered) => p.productType || p.product_type || '').filter(Boolean).join(', ')
+        : '';
+      const productPrices = Array.isArray(productsData)
+        ? productsData.map((p: ProductOffered) => `${p.productType || p.product_type}: ${p.price}`).filter(Boolean).join(', ')
+        : '';
       
       return {
         _id: manufacturer.id,
         id: manufacturer.id,
         Manufacturer_ID: `M${String(manufacturer.id).padStart(3, '0')}`,
-        Manufacturer_Name: manufacturer.name,
-        Location: manufacturer.location,
-        Contact_Number: manufacturer.contact,
-        Email: manufacturer.email || '',
-        Contact_Person_Name: manufacturer.contact_person_name || '',
-        Contact_Person_Phone: manufacturer.contact_person_phone || '',
-        Contact_Person_Email: manufacturer.contact_person_email || '',
-        Contact_Person_Designation: manufacturer.contact_person_designation || '',
-        GST_Number: manufacturer.gst_number || '',
-        Website: manufacturer.website || '',
+        Manufacturer_Name: manufacturer.name || manufacturer.Name || '',
+        Location: manufacturer.location || manufacturer.Location || '',
+        Contact_Number: manufacturer.contact || manufacturer.Contact || manufacturer.phone || '',
+        Email: manufacturer.email || manufacturer.Email || '',
+        Contact_Person_Name: manufacturer.contact_person_name || manufacturer.contactPersonName || '',
+        Contact_Person_Phone: manufacturer.contact_person_phone || manufacturer.contactPersonPhone || '',
+        Contact_Person_Email: manufacturer.contact_person_email || manufacturer.contactPersonEmail || '',
+        Contact_Person_Designation: manufacturer.contact_person_designation || manufacturer.contactPersonDesignation || '',
+        GST_Number: manufacturer.gst_number || manufacturer.gstNumber || manufacturer.GST_Number || '',
+        Website: manufacturer.website || manufacturer.Website || '',
         Products_Offered: productsOffered,
         'Product_Prices (Rs.)': productPrices,
-        productsOffered: manufacturer.products_offered || []
+        productsOffered: productsData
       };
     });
 
@@ -191,8 +204,10 @@ export async function POST(request: NextRequest) {
       if (nameScore >= 0.85) {
         const existingProducts = existingManufacturer.products_offered || [];
         for (const newProduct of productsOffered) {
+          const newProductType = newProduct.productType || newProduct.product_type || '';
           for (const existingProduct of existingProducts) {
-            const productTypeScore = fuzzyMatch(newProduct.productType, existingProduct.productType);
+            const existingProductType = existingProduct.productType || existingProduct.product_type || '';
+            const productTypeScore = fuzzyMatch(newProductType, existingProductType);
             if (productTypeScore >= 0.85) {
               return Response.json({
                 success: false,
@@ -200,7 +215,7 @@ export async function POST(request: NextRequest) {
                 existing: {
                   name: existingManufacturer.name,
                   location: existingManufacturer.location,
-                  productType: existingProduct.productType,
+                  productType: existingProductType,
                   price: existingProduct.price
                 }
               }, { status: 409 });

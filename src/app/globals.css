@@ -49,6 +49,7 @@
   --color-off-white: var(--off-white);
   --color-soft-white: var(--soft-white);
   --color-text-dark: var(--text-dark);
+  --color-text-muted: #6B7280;
   
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
