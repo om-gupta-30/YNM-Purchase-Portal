@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import Header from '@/components/layout/Header';
-import { GoogleMap, useJsApiLoader, DirectionsRenderer, Marker } from '@react-google-maps/api';
 
 // World currencies with symbols
 const currencies = [
@@ -30,30 +29,11 @@ const currencies = [
   { code: 'MXN', symbol: 'Mex$', name: 'Mexican Peso' },
 ];
 
-// Google Maps libraries to load
-const libraries: ("places" | "geometry")[] = ['places', 'geometry'];
-
-// Map container style
-const mapContainerStyle = {
-  width: '100%',
-  height: '400px',
-  borderRadius: '16px',
-};
-
-// Default center (India)
-const defaultCenter = {
-  lat: 20.5937,
-  lng: 78.9629,
-};
-
-// Map options
-const mapOptions = {
-  disableDefaultUI: false,
-  zoomControl: true,
-  streetViewControl: false,
-  mapTypeControl: true,
-  fullscreenControl: true,
-};
+// Coordinate type
+interface Coordinates {
+  lat: number;
+  lng: number;
+}
 
 // Haversine formula to calculate distance between two coordinates (fallback)
 function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -66,6 +46,70 @@ function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lo
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c);
+}
+
+// Geocode location using OpenStreetMap Nominatim (free, no API key needed)
+async function geocodeLocation(query: string): Promise<{ lat: number; lng: number; displayName: string }> {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
+    {
+      headers: {
+        'User-Agent': 'YNM-Transport-Calculator/1.0',
+      },
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error(`Geocoding failed for: ${query}`);
+  }
+  
+  const data = await response.json();
+  
+  if (!data || data.length === 0) {
+    throw new Error(`Location not found: "${query}"`);
+  }
+  
+  return {
+    lat: parseFloat(data[0].lat),
+    lng: parseFloat(data[0].lon),
+    displayName: data[0].display_name.split(',').slice(0, 2).join(','),
+  };
+}
+
+// Get route using OSRM (free, no API key needed)
+async function getRoute(from: Coordinates, to: Coordinates): Promise<{
+  distance: number;
+  duration: string;
+  geometry: [number, number][];
+}> {
+  const response = await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
+  );
+  
+  if (!response.ok) {
+    throw new Error('Could not calculate route');
+  }
+  
+  const data = await response.json();
+  
+  if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+    throw new Error('No route found between these locations');
+  }
+  
+  const route = data.routes[0];
+  const distanceKm = Math.round(route.distance / 1000);
+  const durationSeconds = route.duration;
+  
+  // Format duration
+  const hours = Math.floor(durationSeconds / 3600);
+  const minutes = Math.floor((durationSeconds % 3600) / 60);
+  const durationStr = hours > 0 ? `${hours} hr ${minutes} min` : `${minutes} min`;
+  
+  return {
+    distance: distanceKm,
+    duration: durationStr,
+    geometry: route.geometry.coordinates,
+  };
 }
 
 export default function TransportPage() {
@@ -82,24 +126,46 @@ export default function TransportPage() {
   const [toDisplayName, setToDisplayName] = useState('');
   const [duration, setDuration] = useState<string | null>(null);
   
-  // Google Maps state
-  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
-  const [map, setMap] = useState<google.maps.Map | null>(null);
-  const [fromCoords, setFromCoords] = useState<google.maps.LatLngLiteral | null>(null);
-  const [toCoords, setToCoords] = useState<google.maps.LatLngLiteral | null>(null);
+  // Map state
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [fromCoords, setFromCoords] = useState<Coordinates | null>(null);
+  const [toCoords, setToCoords] = useState<Coordinates | null>(null);
+  const [routeGeometry, setRouteGeometry] = useState<[number, number][] | null>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const leafletMapRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const routeLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const markersRef = useRef<any[]>([]);
   
   // Custom rate state
   const [ratePerKm, setRatePerKm] = useState<string>('10');
   const [selectedCurrency, setSelectedCurrency] = useState(currencies[0]); // Default INR
 
-  // Load Google Maps
-  const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
-    libraries,
-  });
+  // Leaflet module reference
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const leafletRef = useRef<any>(null);
 
-  const onMapLoad = useCallback((map: google.maps.Map) => {
-    setMap(map);
+  // Initialize Leaflet map
+  const initializeMap = useCallback(async () => {
+    if (!mapRef.current || leafletMapRef.current) return;
+    
+    // Dynamically import Leaflet
+    const L = await import('leaflet');
+    leafletRef.current = L;
+    
+    // Create map centered on India
+    const map = L.map(mapRef.current).setView([20.5937, 78.9629], 5);
+    
+    // Add OpenStreetMap tiles
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map);
+    
+    leafletMapRef.current = map;
+    setMapLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -107,6 +173,74 @@ export default function TransportPage() {
       router.push('/login');
     }
   }, [isAuthenticated, isLoading, router]);
+
+  // Initialize map on mount
+  useEffect(() => {
+    initializeMap();
+    
+    return () => {
+      if (leafletMapRef.current) {
+        leafletMapRef.current.remove();
+        leafletMapRef.current = null;
+      }
+    };
+  }, [initializeMap]);
+
+  // Update map when route changes
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = leafletMapRef.current;
+    if (!L || !map) return;
+
+    // Clear existing markers and route
+    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current = [];
+    if (routeLayerRef.current) {
+      routeLayerRef.current.remove();
+      routeLayerRef.current = null;
+    }
+
+    // Add markers for from and to locations
+    if (fromCoords) {
+      const fromIcon = L.divIcon({
+        className: 'custom-marker',
+        html: '<div style="background: #22c55e; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+      const marker = L.marker([fromCoords.lat, fromCoords.lng], { icon: fromIcon }).addTo(map);
+      markersRef.current.push(marker);
+    }
+
+    if (toCoords) {
+      const toIcon = L.divIcon({
+        className: 'custom-marker',
+        html: '<div style="background: #ef4444; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);"></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+      const marker = L.marker([toCoords.lat, toCoords.lng], { icon: toIcon }).addTo(map);
+      markersRef.current.push(marker);
+    }
+
+    // Draw route if available
+    if (routeGeometry && routeGeometry.length > 0) {
+      const latLngs = routeGeometry.map(coord => [coord[1], coord[0]] as [number, number]);
+      routeLayerRef.current = L.polyline(latLngs, {
+        color: '#3b82f6',
+        weight: 4,
+        opacity: 0.8,
+      }).addTo(map);
+      map.fitBounds(routeLayerRef.current.getBounds(), { padding: [50, 50] });
+    } else if (fromCoords && toCoords) {
+      // Fit to markers if no route
+      const bounds = L.latLngBounds([
+        [fromCoords.lat, fromCoords.lng],
+        [toCoords.lat, toCoords.lng],
+      ]);
+      map.fitBounds(bounds, { padding: [50, 50] });
+    }
+  }, [fromCoords, toCoords, routeGeometry]);
 
   // Auto-hide errors
   useEffect(() => {
@@ -121,7 +255,6 @@ export default function TransportPage() {
   useEffect(() => {
     if (distance !== null && ratePerKm) {
       const rate = parseFloat(ratePerKm) || 0;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTransportCost(distance * rate);
     }
   }, [ratePerKm, distance]);
@@ -147,98 +280,46 @@ export default function TransportPage() {
     setIsCalculating(true);
     setDistance(null);
     setTransportCost(null);
-    setDirections(null);
+    setRouteGeometry(null);
     setDuration(null);
 
-    // If Google Maps is loaded, use Directions API for road distance
-    if (isLoaded && window.google) {
-      const directionsService = new google.maps.DirectionsService();
-      const geocoder = new google.maps.Geocoder();
+    try {
+      // Geocode both locations using OpenStreetMap Nominatim
+      const [fromResult, toResult] = await Promise.all([
+        geocodeLocation(fromLocation),
+        geocodeLocation(toLocation),
+      ]);
 
+      const fromLatLng = { lat: fromResult.lat, lng: fromResult.lng };
+      const toLatLng = { lat: toResult.lat, lng: toResult.lng };
+
+      setFromCoords(fromLatLng);
+      setToCoords(toLatLng);
+      setFromDisplayName(fromResult.displayName);
+      setToDisplayName(toResult.displayName);
+
+      // Try to get road route using OSRM
       try {
-        // Geocode both locations first
-        const [fromResult, toResult] = await Promise.all([
-          new Promise<google.maps.GeocoderResult[]>((resolve, reject) => {
-            geocoder.geocode({ address: fromLocation }, (results, status) => {
-              if (status === 'OK' && results) resolve(results);
-              else reject(new Error(`Could not find location: "${fromLocation}"`));
-            });
-          }),
-          new Promise<google.maps.GeocoderResult[]>((resolve, reject) => {
-            geocoder.geocode({ address: toLocation }, (results, status) => {
-              if (status === 'OK' && results) resolve(results);
-              else reject(new Error(`Could not find location: "${toLocation}"`));
-            });
-          }),
-        ]);
-
-        const fromLatLng = {
-          lat: fromResult[0].geometry.location.lat(),
-          lng: fromResult[0].geometry.location.lng(),
-        };
-        const toLatLng = {
-          lat: toResult[0].geometry.location.lat(),
-          lng: toResult[0].geometry.location.lng(),
-        };
-
-        setFromCoords(fromLatLng);
-        setToCoords(toLatLng);
-        setFromDisplayName(fromResult[0].formatted_address.split(',').slice(0, 2).join(','));
-        setToDisplayName(toResult[0].formatted_address.split(',').slice(0, 2).join(','));
-
-        // Try to get road directions
-        try {
-          const result = await new Promise<google.maps.DirectionsResult>((resolve, reject) => {
-            directionsService.route(
-              {
-                origin: fromLocation,
-                destination: toLocation,
-                travelMode: google.maps.TravelMode.DRIVING,
-              },
-              (result, status) => {
-                if (status === 'OK' && result) resolve(result);
-                else reject(new Error('No route found'));
-              }
-            );
-          });
-
-          setDirections(result);
-          const route = result.routes[0].legs[0];
-          const roadDistanceKm = Math.round((route.distance?.value || 0) / 1000);
-          setDistance(roadDistanceKm);
-          setTransportCost(roadDistanceKm * rate);
-          setDistanceType('road');
-          setDuration(route.duration?.text || null);
-
-          // Fit map to show the route
-          if (map && result.routes[0].bounds) {
-            map.fitBounds(result.routes[0].bounds);
-          }
-        } catch {
-          // Fallback to air distance if no road route available
-          const airDistance = calculateHaversineDistance(
-            fromLatLng.lat, fromLatLng.lng,
-            toLatLng.lat, toLatLng.lng
-          );
-          setDistance(airDistance);
-          setTransportCost(airDistance * rate);
-          setDistanceType('air');
-          setError('No road route available. Showing air distance instead.');
-
-          // Fit map to show both markers
-          if (map) {
-            const bounds = new google.maps.LatLngBounds();
-            bounds.extend(fromLatLng);
-            bounds.extend(toLatLng);
-            map.fitBounds(bounds);
-          }
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error calculating distance. Please try again.');
+        const routeResult = await getRoute(fromLatLng, toLatLng);
+        
+        setDistance(routeResult.distance);
+        setTransportCost(routeResult.distance * rate);
+        setDistanceType('road');
+        setDuration(routeResult.duration);
+        setRouteGeometry(routeResult.geometry);
+      } catch {
+        // Fallback to air distance if no road route available
+        const airDistance = calculateHaversineDistance(
+          fromLatLng.lat, fromLatLng.lng,
+          toLatLng.lat, toLatLng.lng
+        );
+        setDistance(airDistance);
+        setTransportCost(airDistance * rate);
+        setDistanceType('air');
+        setError('No road route available. Showing air distance instead.');
       }
-    } else {
-      // Fallback to OpenStreetMap if Google Maps not loaded
-      setError('Google Maps not loaded. Please check your API key.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error calculating distance. Please try again.');
     }
 
     setIsCalculating(false);
@@ -258,6 +339,7 @@ export default function TransportPage() {
     setTransportCost(null);
     setFromDisplayName('');
     setToDisplayName('');
+    setRouteGeometry(null);
   };
 
   const clearForm = () => {
@@ -268,6 +350,9 @@ export default function TransportPage() {
     setError('');
     setFromDisplayName('');
     setToDisplayName('');
+    setRouteGeometry(null);
+    setFromCoords(null);
+    setToCoords(null);
   };
 
   const handleCurrencyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -468,32 +553,23 @@ export default function TransportPage() {
 
         {/* Right Column - Results Section */}
         <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
-          {/* Google Map - Always show if loaded */}
-          {isLoaded && !loadError && (
-            <div className="mb-6">
-              <GoogleMap
-                mapContainerStyle={mapContainerStyle}
-                center={fromCoords || defaultCenter}
-                zoom={5}
-                onLoad={onMapLoad}
-                options={mapOptions}
-              >
-                {directions && <DirectionsRenderer directions={directions} />}
-                {!directions && fromCoords && (
-                  <Marker position={fromCoords} label="A" />
-                )}
-                {!directions && toCoords && (
-                  <Marker position={toCoords} label="B" />
-                )}
-              </GoogleMap>
-            </div>
-          )}
-
-          {loadError && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-              Error loading Google Maps. Please check your API key.
-            </div>
-          )}
+          {/* OpenStreetMap via Leaflet - Always show */}
+          <div className="mb-6">
+            <div
+              ref={mapRef}
+              style={{
+                width: '100%',
+                height: '400px',
+                borderRadius: '16px',
+              }}
+              className="z-0"
+            />
+            {!mapLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-2xl">
+                <div className="spinner-lg"></div>
+              </div>
+            )}
+          </div>
 
           {distance === null ? (
             // Empty State
@@ -668,13 +744,21 @@ export default function TransportPage() {
             </svg>
           </div>
           <div>
-            <p className="text-green-800 font-semibold">Powered by Google Maps</p>
+            <p className="text-green-800 font-semibold">Powered by OpenStreetMap & OSRM</p>
             <p className="text-green-700 text-sm mt-1">
-              Distance shown is the actual road distance calculated using Google Maps Distance Matrix API. The route displayed on the map shows the recommended driving path. Travel time estimates are based on current traffic conditions.
+              Distance shown is the actual road distance calculated using OSRM (Open Source Routing Machine). The route displayed on the map shows the recommended driving path. Map data provided by OpenStreetMap contributors.
             </p>
           </div>
         </div>
       </div>
+
+      {/* Leaflet CSS - loaded dynamically */}
+      <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossOrigin=""
+      />
     </div>
   );
 }

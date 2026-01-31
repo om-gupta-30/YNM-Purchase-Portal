@@ -21,12 +21,13 @@ A comprehensive purchase management system for YNM Safety, built with Next.js 16
 
 ### Advanced Features
 
-- **Transport Calculator** - Calculate route distances and transport costs using Google Maps API
-  - Embedded interactive Google Maps
-  - Real road distance calculation (not just air distance)
+- **Transport Calculator** - Calculate route distances and transport costs
+  - Interactive OpenStreetMap with Leaflet
+  - Real road distance calculation via OSRM (Open Source Routing Machine)
   - Estimated travel time
   - Multi-currency support (20+ currencies)
   - Custom rate per kilometer
+  - No API key required!
 - **PDF Invoice Extraction** - Extract order data from PDF invoices automatically
 - **Role-Based Authentication** - Admin and Employee roles with different permissions
 - **Responsive Design** - Works seamlessly on desktop and mobile devices
@@ -40,8 +41,9 @@ A comprehensive purchase management system for YNM Safety, built with Next.js 16
 | Styling | Tailwind CSS 4 |
 | Database | Supabase (PostgreSQL) |
 | Authentication | JWT (JSON Web Tokens) |
-| Maps | Google Maps API |
-| Deployment | Vercel (recommended) |
+| Maps | OpenStreetMap + Leaflet |
+| Routing | OSRM (Open Source Routing Machine) |
+| Deployment | Vercel / GCP / Any Node.js host |
 
 ## Getting Started
 
@@ -50,7 +52,6 @@ A comprehensive purchase management system for YNM Safety, built with Next.js 16
 - Node.js 18+ 
 - npm or yarn
 - Supabase account
-- Google Cloud account (for Maps API)
 
 ### Installation
 
@@ -79,9 +80,6 @@ A comprehensive purchase management system for YNM Safety, built with Next.js 16
    # JWT Configuration
    JWT_SECRET=your-secure-random-secret
    JWT_EXPIRE=7d
-   
-   # Google Maps API (for transport calculator)
-   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
    ```
 
 4. **Run the development server**
@@ -103,10 +101,6 @@ ynm-purchase-portal/
 │   ├── app/                   # Next.js App Router
 │   │   ├── api/               # API Routes
 │   │   │   ├── auth/          # Authentication endpoints
-│   │   │   │   ├── login/     # POST /api/auth/login
-│   │   │   │   ├── register/  # POST /api/auth/register
-│   │   │   │   ├── me/        # GET /api/auth/me
-│   │   │   │   └── ...
 │   │   │   ├── products/      # Products CRUD
 │   │   │   ├── manufacturers/ # Manufacturers CRUD
 │   │   │   ├── importers/     # Importers CRUD
@@ -150,7 +144,8 @@ ynm-purchase-portal/
 ├── .gitignore                 # Git ignore rules
 ├── next.config.ts             # Next.js configuration
 ├── package.json               # Dependencies
-├── tailwind.config.ts         # Tailwind configuration
+├── postcss.config.mjs         # PostCSS configuration
+├── eslint.config.mjs          # ESLint configuration
 └── tsconfig.json              # TypeScript configuration
 ```
 
@@ -170,8 +165,6 @@ ynm-purchase-portal/
 |--------|----------|-------------|
 | GET/POST | `/api/products` | List/Create products |
 | GET/POST | `/api/manufacturers` | List/Create manufacturers |
-| GET/PUT/DELETE | `/api/manufacturers/[id]` | CRUD manufacturer |
-| GET/POST | `/api/importers` | List/Create importers |
 | GET/PUT/DELETE | `/api/importers/[id]` | CRUD importer |
 | GET/POST | `/api/dealers` | List/Create dealers |
 | GET/PUT/DELETE | `/api/dealers/[id]` | CRUD dealer |
@@ -201,8 +194,25 @@ The application uses Supabase (PostgreSQL) with the following main tables:
 
 1. Push your code to GitHub
 2. Import the project in [Vercel](https://vercel.com)
-3. Add environment variables in Vercel dashboard
+3. Add environment variables in Vercel dashboard:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `JWT_SECRET`
+   - `JWT_EXPIRE`
 4. Deploy
+
+### Google Cloud Platform (GCP)
+
+1. Install Google Cloud SDK
+2. Build the application:
+   ```bash
+   npm run build
+   ```
+3. Deploy to Cloud Run:
+   ```bash
+   gcloud run deploy ynm-portal --source . --allow-unauthenticated
+   ```
+4. Set environment variables in Cloud Run console
 
 ### Manual Deployment
 
@@ -220,9 +230,8 @@ npm start
 |----------|----------|-------------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
-| `JWT_SECRET` | Yes | Secret for JWT signing |
+| `JWT_SECRET` | Yes | Secret for JWT signing (min 32 chars) |
 | `JWT_EXPIRE` | No | JWT expiration (default: 7d) |
-| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | No | Google Maps API key |
 
 ## Scripts
 
@@ -233,12 +242,31 @@ npm run start    # Start production server
 npm run lint     # Run ESLint
 ```
 
-## Security Notes
+## Security Checklist
 
-- Never commit `.env.local` to version control
-- Restrict Google Maps API key to your domains in Google Cloud Console
-- Use strong JWT secrets in production
-- Enable Row Level Security (RLS) in Supabase
+Before deploying to production:
+
+- [ ] **Never commit `.env.local`** - Contains sensitive credentials
+- [ ] **Use strong JWT secret** - Generate with `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+- [ ] **Enable Row Level Security (RLS)** - In Supabase dashboard
+- [ ] **Restrict Supabase API access** - Use RLS policies
+- [ ] **Use HTTPS only** - Enforced by Vercel/GCP by default
+- [ ] **Review .gitignore** - Ensure all sensitive files are excluded
+
+### What's Safe to Commit
+
+✅ `.env.local.example` - Template with placeholder values  
+✅ Source code files  
+✅ Package files (`package.json`, `package-lock.json`)  
+✅ Configuration files (next.config.ts, tsconfig.json, etc.)
+
+### What Should NEVER Be Committed
+
+❌ `.env.local` - Contains real credentials  
+❌ `.env` - Any file with real secrets  
+❌ `*.pem`, `*.key` - Private keys  
+❌ `node_modules/` - Dependencies  
+❌ `.next/` - Build artifacts
 
 ## Contributing
 
