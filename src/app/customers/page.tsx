@@ -529,9 +529,13 @@ export default function CustomersPage() {
         <button
           type="button"
           onClick={() => {
-            isEdit ? setShowEditModal(false) : setShowAddModal(false);
+            if (isEdit) {
+              setShowEditModal(false);
+              setEditingCustomer(null);
+            } else {
+              setShowAddModal(false);
+            }
             resetForm();
-            if (isEdit) setEditingCustomer(null);
           }}
           className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-dark py-3 rounded-xl font-medium transition-colors"
         >

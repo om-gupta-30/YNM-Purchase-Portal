@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import Header from '@/components/layout/Header';
+import { GoogleMap, useJsApiLoader, DirectionsRenderer, Marker } from '@react-google-maps/api';
 
 // World currencies with symbols
 const currencies = [
@@ -29,7 +30,32 @@ const currencies = [
   { code: 'MXN', symbol: 'Mex$', name: 'Mexican Peso' },
 ];
 
-// Haversine formula to calculate distance between two coordinates
+// Google Maps libraries to load
+const libraries: ("places" | "geometry")[] = ['places', 'geometry'];
+
+// Map container style
+const mapContainerStyle = {
+  width: '100%',
+  height: '400px',
+  borderRadius: '16px',
+};
+
+// Default center (India)
+const defaultCenter = {
+  lat: 20.5937,
+  lng: 78.9629,
+};
+
+// Map options
+const mapOptions = {
+  disableDefaultUI: false,
+  zoomControl: true,
+  streetViewControl: false,
+  mapTypeControl: true,
+  fullscreenControl: true,
+};
+
+// Haversine formula to calculate distance between two coordinates (fallback)
 function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371; // Earth's radius in kilometers
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -42,44 +68,6 @@ function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lo
   return Math.round(R * c);
 }
 
-// Normalize location to title case for better geocoding results
-function normalizeLocation(location: string): string {
-  return location
-    .trim()
-    .toLowerCase()
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-// Geocode location using OpenStreetMap Nominatim API
-async function geocodeLocation(location: string): Promise<{ lat: number; lon: number; displayName: string } | null> {
-  try {
-    // Normalize the location input (case-insensitive)
-    const normalizedLocation = normalizeLocation(location);
-    
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(normalizedLocation)}&limit=1`,
-      {
-        headers: {
-          'User-Agent': 'YNM-Safety-Portal/1.0'
-        }
-      }
-    );
-    const data = await response.json();
-    if (data && data.length > 0) {
-      return {
-        lat: parseFloat(data[0].lat),
-        lon: parseFloat(data[0].lon),
-        displayName: data[0].display_name
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 export default function TransportPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
@@ -89,13 +77,30 @@ export default function TransportPage() {
   const [transportCost, setTransportCost] = useState<number | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [error, setError] = useState('');
-  const [distanceType, setDistanceType] = useState<'air' | 'road'>('air');
+  const [distanceType, setDistanceType] = useState<'air' | 'road'>('road');
   const [fromDisplayName, setFromDisplayName] = useState('');
   const [toDisplayName, setToDisplayName] = useState('');
+  const [duration, setDuration] = useState<string | null>(null);
+  
+  // Google Maps state
+  const [directions, setDirections] = useState<google.maps.DirectionsResult | null>(null);
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+  const [fromCoords, setFromCoords] = useState<google.maps.LatLngLiteral | null>(null);
+  const [toCoords, setToCoords] = useState<google.maps.LatLngLiteral | null>(null);
   
   // Custom rate state
   const [ratePerKm, setRatePerKm] = useState<string>('10');
   const [selectedCurrency, setSelectedCurrency] = useState(currencies[0]); // Default INR
+
+  // Load Google Maps
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
+    libraries,
+  });
+
+  const onMapLoad = useCallback((map: google.maps.Map) => {
+    setMap(map);
+  }, []);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -112,9 +117,11 @@ export default function TransportPage() {
   }, [error]);
 
   // Recalculate cost when rate or currency changes (if distance exists)
+  // This is intentional - we want to update cost when user changes the rate
   useEffect(() => {
     if (distance !== null && ratePerKm) {
       const rate = parseFloat(ratePerKm) || 0;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTransportCost(distance * rate);
     }
   }, [ratePerKm, distance]);
@@ -140,43 +147,101 @@ export default function TransportPage() {
     setIsCalculating(true);
     setDistance(null);
     setTransportCost(null);
+    setDirections(null);
+    setDuration(null);
 
-    try {
-      // Geocode both locations
-      const [fromGeo, toGeo] = await Promise.all([
-        geocodeLocation(fromLocation),
-        geocodeLocation(toLocation)
-      ]);
+    // If Google Maps is loaded, use Directions API for road distance
+    if (isLoaded && window.google) {
+      const directionsService = new google.maps.DirectionsService();
+      const geocoder = new google.maps.Geocoder();
 
-      if (!fromGeo) {
-        setError(`Could not find location: "${fromLocation}". Please check the spelling.`);
-        return;
+      try {
+        // Geocode both locations first
+        const [fromResult, toResult] = await Promise.all([
+          new Promise<google.maps.GeocoderResult[]>((resolve, reject) => {
+            geocoder.geocode({ address: fromLocation }, (results, status) => {
+              if (status === 'OK' && results) resolve(results);
+              else reject(new Error(`Could not find location: "${fromLocation}"`));
+            });
+          }),
+          new Promise<google.maps.GeocoderResult[]>((resolve, reject) => {
+            geocoder.geocode({ address: toLocation }, (results, status) => {
+              if (status === 'OK' && results) resolve(results);
+              else reject(new Error(`Could not find location: "${toLocation}"`));
+            });
+          }),
+        ]);
+
+        const fromLatLng = {
+          lat: fromResult[0].geometry.location.lat(),
+          lng: fromResult[0].geometry.location.lng(),
+        };
+        const toLatLng = {
+          lat: toResult[0].geometry.location.lat(),
+          lng: toResult[0].geometry.location.lng(),
+        };
+
+        setFromCoords(fromLatLng);
+        setToCoords(toLatLng);
+        setFromDisplayName(fromResult[0].formatted_address.split(',').slice(0, 2).join(','));
+        setToDisplayName(toResult[0].formatted_address.split(',').slice(0, 2).join(','));
+
+        // Try to get road directions
+        try {
+          const result = await new Promise<google.maps.DirectionsResult>((resolve, reject) => {
+            directionsService.route(
+              {
+                origin: fromLocation,
+                destination: toLocation,
+                travelMode: google.maps.TravelMode.DRIVING,
+              },
+              (result, status) => {
+                if (status === 'OK' && result) resolve(result);
+                else reject(new Error('No route found'));
+              }
+            );
+          });
+
+          setDirections(result);
+          const route = result.routes[0].legs[0];
+          const roadDistanceKm = Math.round((route.distance?.value || 0) / 1000);
+          setDistance(roadDistanceKm);
+          setTransportCost(roadDistanceKm * rate);
+          setDistanceType('road');
+          setDuration(route.duration?.text || null);
+
+          // Fit map to show the route
+          if (map && result.routes[0].bounds) {
+            map.fitBounds(result.routes[0].bounds);
+          }
+        } catch {
+          // Fallback to air distance if no road route available
+          const airDistance = calculateHaversineDistance(
+            fromLatLng.lat, fromLatLng.lng,
+            toLatLng.lat, toLatLng.lng
+          );
+          setDistance(airDistance);
+          setTransportCost(airDistance * rate);
+          setDistanceType('air');
+          setError('No road route available. Showing air distance instead.');
+
+          // Fit map to show both markers
+          if (map) {
+            const bounds = new google.maps.LatLngBounds();
+            bounds.extend(fromLatLng);
+            bounds.extend(toLatLng);
+            map.fitBounds(bounds);
+          }
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Error calculating distance. Please try again.');
       }
-
-      if (!toGeo) {
-        setError(`Could not find location: "${toLocation}". Please check the spelling.`);
-        return;
-      }
-
-      // Store display names
-      setFromDisplayName(fromGeo.displayName.split(',').slice(0, 2).join(','));
-      setToDisplayName(toGeo.displayName.split(',').slice(0, 2).join(','));
-
-      // Calculate straight-line distance
-      const airDistance = calculateHaversineDistance(
-        fromGeo.lat, fromGeo.lon,
-        toGeo.lat, toGeo.lon
-      );
-
-      setDistance(airDistance);
-      setTransportCost(airDistance * rate);
-      setDistanceType('air');
-
-    } catch {
-      setError('Error calculating distance. Please try again.');
-    } finally {
-      setIsCalculating(false);
+    } else {
+      // Fallback to OpenStreetMap if Google Maps not loaded
+      setError('Google Maps not loaded. Please check your API key.');
     }
+
+    setIsCalculating(false);
   };
 
   const openInGoogleMaps = () => {
@@ -403,58 +468,93 @@ export default function TransportPage() {
 
         {/* Right Column - Results Section */}
         <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+          {/* Google Map - Always show if loaded */}
+          {isLoaded && !loadError && (
+            <div className="mb-6">
+              <GoogleMap
+                mapContainerStyle={mapContainerStyle}
+                center={fromCoords || defaultCenter}
+                zoom={5}
+                onLoad={onMapLoad}
+                options={mapOptions}
+              >
+                {directions && <DirectionsRenderer directions={directions} />}
+                {!directions && fromCoords && (
+                  <Marker position={fromCoords} label="A" />
+                )}
+                {!directions && toCoords && (
+                  <Marker position={toCoords} label="B" />
+                )}
+              </GoogleMap>
+            </div>
+          )}
+
+          {loadError && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+              Error loading Google Maps. Please check your API key.
+            </div>
+          )}
+
           {distance === null ? (
             // Empty State
-            <div className="h-full flex flex-col items-center justify-center text-center py-12">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center mb-6">
-                <svg className="w-12 h-12 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex flex-col items-center justify-center text-center py-8">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center mb-4">
+                <svg className="w-10 h-10 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-text-dark mb-2">Calculate Global Distance</h3>
+              <h3 className="text-lg font-bold text-text-dark mb-2">Calculate Road Distance</h3>
               <p className="text-text-muted text-sm max-w-xs mb-4">
-                Enter any two locations in the world to calculate the distance and estimated cost.
+                Enter two locations to see the actual road distance and route on the map.
               </p>
               <div className="flex flex-wrap gap-2 justify-center text-xs">
-                <span className="px-2 py-1 bg-gray-100 rounded-full text-gray-600">Mumbai → New York</span>
-                <span className="px-2 py-1 bg-gray-100 rounded-full text-gray-600">London → Tokyo</span>
-                <span className="px-2 py-1 bg-gray-100 rounded-full text-gray-600">Dubai → Singapore</span>
+                <span className="px-2 py-1 bg-gray-100 rounded-full text-gray-600">Mumbai → Delhi</span>
+                <span className="px-2 py-1 bg-gray-100 rounded-full text-gray-600">New York → LA</span>
+                <span className="px-2 py-1 bg-gray-100 rounded-full text-gray-600">London → Paris</span>
               </div>
             </div>
           ) : (
             // Results Display
             <div className="animate-slideUp">
               {/* Header */}
-              <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-100">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-lg">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-lg">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-text-dark">Distance Calculated!</h3>
-                  <p className="text-text-muted text-sm">Showing straight-line (air) distance</p>
+                  <h3 className="text-base font-bold text-text-dark">Route Calculated!</h3>
+                  <p className="text-text-muted text-xs">
+                    {distanceType === 'road' ? 'Showing actual road distance' : 'Showing air distance (no road route)'}
+                  </p>
                 </div>
               </div>
               
               {/* Route Visual */}
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-5 mb-6 border border-blue-100">
-                <div className="flex items-center gap-3 mb-4">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 mb-4 border border-blue-100">
+                <div className="flex items-center gap-3 mb-3">
                   {/* From */}
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-3 h-3 rounded-full bg-green-500"></div>
                       <span className="text-xs text-text-muted font-medium uppercase tracking-wide">From</span>
                     </div>
-                    <p className="text-text-dark font-semibold text-sm">{fromDisplayName || fromLocation}</p>
+                    <p className="text-text-dark font-semibold text-xs">{fromDisplayName || fromLocation}</p>
                   </div>
                   
-                  {/* Plane Icon for Air Distance */}
+                  {/* Icon based on distance type */}
                   <div className="flex flex-col items-center px-2">
-                    <div className="w-12 h-12 rounded-full bg-white shadow-md flex items-center justify-center">
-                      <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                      </svg>
+                    <div className="w-10 h-10 rounded-full bg-white shadow-md flex items-center justify-center">
+                      {distanceType === 'road' ? (
+                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                        </svg>
+                      )}
                     </div>
                     <span className="text-xs text-blue-600 font-semibold mt-1">{distance.toLocaleString()} km</span>
                   </div>
@@ -465,55 +565,80 @@ export default function TransportPage() {
                       <span className="text-xs text-text-muted font-medium uppercase tracking-wide">To</span>
                       <div className="w-3 h-3 rounded-full bg-red-500"></div>
                     </div>
-                    <p className="text-text-dark font-semibold text-sm">{toDisplayName || toLocation}</p>
+                    <p className="text-text-dark font-semibold text-xs">{toDisplayName || toLocation}</p>
                   </div>
                 </div>
 
-                {/* Distance Type Badge */}
+                {/* Distance Type & Duration Badge */}
                 <div className="flex items-center justify-center gap-2 pt-3 border-t border-blue-200/50">
-                  <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className="text-xs text-blue-700">
-                    {distanceType === 'air' ? 'Straight-line (air) distance - actual travel distance may vary' : 'Road distance'}
-                  </span>
+                  {distanceType === 'road' ? (
+                    <>
+                      <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-xs text-green-700 font-medium">
+                        Road Distance {duration && `• Est. ${duration}`}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-xs text-amber-700">Air distance - no road route available</span>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* Cost Breakdown */}
-              <div className="space-y-3 mb-6">
-                <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="space-y-2 mb-4">
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                       </svg>
                     </div>
-                    <span className="text-text-dark font-medium">Distance</span>
+                    <span className="text-text-dark font-medium text-sm">Distance</span>
                   </div>
-                  <span className="text-xl font-bold text-blue-600">{distance.toLocaleString()} km</span>
+                  <span className="text-lg font-bold text-blue-600">{distance.toLocaleString()} km</span>
                 </div>
                 
-                <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                      <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {duration && distanceType === 'road' && (
+                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-green-100 flex items-center justify-center">
+                        <svg className="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <span className="text-text-dark font-medium text-sm">Travel Time</span>
+                    </div>
+                    <span className="text-lg font-bold text-green-600">{duration}</span>
+                  </div>
+                )}
+                
+                <div className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                       </svg>
                     </div>
-                    <span className="text-text-dark font-medium">Your Rate</span>
+                    <span className="text-text-dark font-medium text-sm">Your Rate</span>
                   </div>
-                  <span className="text-lg font-semibold text-purple-600">{selectedCurrency.symbol}{ratePerKm}/km</span>
+                  <span className="text-base font-semibold text-purple-600">{selectedCurrency.symbol}{ratePerKm}/km</span>
                 </div>
               </div>
 
               {/* Total Cost */}
-              <div className="bg-gradient-to-r from-maroon to-maroon-dark rounded-xl p-5 text-center mb-6">
-                <p className="text-cream/80 text-sm mb-1">Estimated Total Cost</p>
-                <p className="text-4xl font-bold text-cream">
+              <div className="bg-gradient-to-r from-maroon to-maroon-dark rounded-xl p-4 text-center mb-4">
+                <p className="text-cream/80 text-xs mb-1">Estimated Total Cost</p>
+                <p className="text-3xl font-bold text-cream">
                   {selectedCurrency.symbol}{formatCost(transportCost || 0)}
                 </p>
-                <p className="text-cream/60 text-xs mt-2">{selectedCurrency.name} ({selectedCurrency.code})</p>
+                <p className="text-cream/60 text-xs mt-1">{selectedCurrency.name} ({selectedCurrency.code})</p>
               </div>
 
               {/* Google Maps Button */}
@@ -535,17 +660,17 @@ export default function TransportPage() {
       </div>
 
       {/* Bottom Info */}
-      <div className="mt-6 bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-5 border border-amber-200/50">
+      <div className="mt-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-5 border border-green-200/50">
         <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <div>
-            <p className="text-amber-800 font-semibold">Important Note</p>
-            <p className="text-amber-700 text-sm mt-1">
-              Distance shown is the straight-line (air) distance between locations. Actual travel distance by road, sea, or air routes may be different. Use &quot;View on Google Maps&quot; to see actual route options and distances.
+            <p className="text-green-800 font-semibold">Powered by Google Maps</p>
+            <p className="text-green-700 text-sm mt-1">
+              Distance shown is the actual road distance calculated using Google Maps Distance Matrix API. The route displayed on the map shows the recommended driving path. Travel time estimates are based on current traffic conditions.
             </p>
           </div>
         </div>

@@ -688,7 +688,11 @@ export default function ImportersPage() {
         <button
           type="button"
           onClick={() => {
-            isEdit ? setShowEditModal(false) : setShowAddModal(false);
+            if (isEdit) {
+              setShowEditModal(false);
+            } else {
+              setShowAddModal(false);
+            }
             resetForm();
           }}
           className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-dark py-3 rounded-xl font-medium transition-colors"

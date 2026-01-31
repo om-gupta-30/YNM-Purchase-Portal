@@ -871,9 +871,13 @@ export default function DealersPage() {
         <button
           type="button"
           onClick={() => {
-            isEdit ? setShowEditModal(false) : setShowAddModal(false);
+            if (isEdit) {
+              setShowEditModal(false);
+              setEditingDealer(null);
+            } else {
+              setShowAddModal(false);
+            }
             resetForm();
-            if (isEdit) setEditingDealer(null);
           }}
           className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-dark py-3 rounded-xl font-medium transition-colors"
         >
@@ -896,19 +900,6 @@ export default function DealersPage() {
       </div>
     </form>
   );
-
-  // Render star rating
-  const renderRating = (rating: number) => {
-    const stars = [];
-    for (let i = 1; i <= 5; i++) {
-      stars.push(
-        <span key={i} className={i <= rating ? 'text-yellow-400' : 'text-gray-300'}>
-          ★
-        </span>
-      );
-    }
-    return <span className="text-sm">{stars}</span>;
-  };
 
   // Get status badge color
   const getStatusColor = (status: string) => {

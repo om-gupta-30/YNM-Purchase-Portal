@@ -27,7 +27,7 @@ function normalizeText(text: string): string {
   return normalized.trim();
 }
 
-function extractManufacturer(text: string, normalizedText: string): string | null {
+function extractManufacturer(text: string): string | null {
   const patterns = [
     /Manufacturer[: ]+(.+)/i,
     /Mfr[: ]+(.+)/i,
@@ -233,7 +233,7 @@ export async function extractPdfData(buffer: Buffer): Promise<PdfExtractResult> 
     
     return {
       success: true,
-      manufacturer: extractManufacturer(rawText, normalizedText) || '',
+      manufacturer: extractManufacturer(rawText) || '',
       product: extractProduct(rawText, normalizedText) || '',
       type: extractSubtype(rawText, normalizedText) || '',
       quantity: extractQuantity(rawText) || '',

@@ -15,27 +15,42 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to safely get stored auth data
+function getStoredAuth(): { token: string | null; user: UserPayload | null } {
+  if (typeof window === 'undefined') {
+    return { token: null, user: null };
+  }
+  
+  try {
+    const storedToken = localStorage.getItem('authToken');
+    const storedUser = localStorage.getItem('user');
+    
+    if (storedToken && storedUser) {
+      return { token: storedToken, user: JSON.parse(storedUser) };
+    }
+  } catch {
+    // Invalid stored data, clear it
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+  }
+  
+  return { token: null, user: null };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserPayload | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Initialize auth state from localStorage on mount
   useEffect(() => {
-    // Check for stored auth on mount
-    const storedToken = localStorage.getItem('authToken');
-    const storedUser = localStorage.getItem('user');
-    
-    if (storedToken && storedUser) {
-      try {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      } catch {
-        // Invalid stored data, clear it
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('user');
-      }
+    const stored = getStoredAuth();
+    if (stored.token && stored.user) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setToken(stored.token);
+      setUser(stored.user);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
-    
     setIsLoading(false);
   }, []);
 

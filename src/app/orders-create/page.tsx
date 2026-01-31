@@ -38,7 +38,7 @@ type ConsumptionLocation = 'factory' | 'site' | 'office' | 'warehouse' | 'other'
 
 export default function OrdersCreatePage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const authFetch = useAuthFetch();
 
   // Step management

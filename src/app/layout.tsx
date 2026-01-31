@@ -26,10 +26,18 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}>
         <AuthProvider>
           <Mascot />
-          {children}
+          <main className="flex-1">
+            {children}
+          </main>
+          {/* Footer Watermark */}
+          <footer className="w-full py-3 text-center bg-gradient-to-r from-maroon/5 via-transparent to-maroon/5 border-t border-maroon/10">
+            <p className="text-xs text-text-muted/70 font-medium tracking-wide">
+              Created by <span className="text-maroon font-semibold">Om Gupta</span>
+            </p>
+          </footer>
         </AuthProvider>
       </body>
     </html>
