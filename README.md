@@ -148,7 +148,6 @@ ynm-purchase-portal/
 │   │   ├── pdf-parser.ts       # PDF extraction logic
 │   │   ├── utils.ts            # Helper utilities
 │   │   └── supabase/
-│   │       ├── client.ts       # Supabase browser client
 │   │       └── server.ts       # Supabase server client
 │   ├── types/
 │   │   └── index.ts            # TypeScript type definitions
@@ -216,7 +215,7 @@ Run the SQL in `docs/database-schema.sql` to set up the required columns.
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `JWT_SECRET`
-   - `JWT_EXPIRE`
+   - `JWT_EXPIRE` (optional)
 4. Deploy
 
 ### Google Cloud Platform (GCP)
@@ -259,7 +258,7 @@ npm start
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL (safe to expose) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (keep secret!) |
 | `JWT_SECRET` | Yes | Secret for JWT signing (min 32 chars, keep secret!) |
 | `JWT_EXPIRE` | No | JWT expiration (default: 7d) |

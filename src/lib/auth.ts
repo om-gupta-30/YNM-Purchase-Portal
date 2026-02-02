@@ -3,9 +3,12 @@ import { NextRequest } from 'next/server';
 import { supabaseAdmin } from './supabase/server';
 import { UserPayload } from '@/types';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'fallback-secret-key'
-);
+// Ensure JWT_SECRET is set - throw error if missing in production
+const jwtSecretValue = process.env.JWT_SECRET;
+if (!jwtSecretValue) {
+  throw new Error('JWT_SECRET environment variable is required. Please set it in your .env.local file.');
+}
+const JWT_SECRET = new TextEncoder().encode(jwtSecretValue);
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
 
 // Generate JWT Token

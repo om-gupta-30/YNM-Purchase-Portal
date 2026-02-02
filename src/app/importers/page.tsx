@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, useAuthFetch } from '@/hooks/useAuth';
 import Header from '@/components/layout/Header';
-import { validators, formatPhone, formatIFSC, formatBankAccount } from '@/utils/validation';
+import { validators, formatIFSC, formatBankAccount } from '@/utils/validation';
 
 interface ProductOffered {
   productType: string;
