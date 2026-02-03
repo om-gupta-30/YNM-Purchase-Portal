@@ -1,0 +1,55 @@
+name: Security Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+jobs:
+  security-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run security audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+        
+      - name: Check for secrets in code
+        run: |
+          echo "Checking for accidentally committed secrets..."
+          if git grep -iE "(supabase.*service.*role|jwt.*secret.*=|password.*=.*[a-zA-Z0-9]{20})" -- '*.ts' '*.tsx' '*.js' '*.jsx'; then
+            echo "⚠️ WARNING: Potential secrets found in code!"
+            exit 1
+          else
+            echo "✅ No secrets found in code"
+          fi
+          
+      - name: Verify .env.local is ignored
+        run: |
+          if git ls-files | grep -q ".env.local$"; then
+            echo "❌ ERROR: .env.local is committed to git!"
+            exit 1
+          else
+            echo "✅ .env.local is properly ignored"
+          fi
+          
+      - name: Check for .DS_Store files
+        run: |
+          if git ls-files | grep -q ".DS_Store"; then
+            echo "⚠️ WARNING: .DS_Store files are committed"
+            exit 1
+          else
+            echo "✅ No .DS_Store files in git"
+          fi
